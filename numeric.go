@@ -87,6 +87,14 @@ func printMat(a matrix) {
 	}
 }
 
+func printVec(v vector) {
+	fmt.Printf("[")
+	for _, x := range v {
+		fmt.Printf("%.3f ", x)
+	}
+	fmt.Printf("]\n")
+}
+
 func mulVec(v vector, k scalar) {
 	for i := range len(v) {
 		v[i] *= k
@@ -151,6 +159,24 @@ func onehot(dim, ix int) vector {
 	return v
 }
 
+func softSample(logits vector) int {
+	rm, _ := rowMax(logits)
+	var sum float64 = 0
+	for i := range logits {
+		sum += math.Exp(float64(logits[i] - rm))
+	}
+	var running float64 = 0
+	r := rand.Float64()
+	for i := range logits {
+		running += math.Exp(float64(logits[i]-rm)) / sum
+		if r < running {
+			return i
+		}
+	}
+	log.Fatal("failed to softsample")
+	return -1
+}
+
 func spsaSample(obj objective, theta vector, bufs []vector, eps scalar, count int, rng *rand.Rand) {
 	mulVec(bufs[0], 0)
 	copy(bufs[2], theta)
@@ -190,7 +216,11 @@ func spsa(args spsaArgs) {
 		rngs[i] = rand.New(rand.NewSource(args.seed + int64(i*1000)))
 	}
 	var wg sync.WaitGroup
-	for range args.iters {
+	for i := range args.iters {
+		if i%250 == 0 {
+			current := objs[0].eval(args.theta)
+			fmt.Printf("\r%%%d %.4f %.4f ", int(float32(i)/float32(args.iters)*100), current, math.Exp(-float64(current)))
+		}
 		for w := range args.parallel {
 			wg.Go(func() {
 				spsaSample(objs[w], args.theta, bufs[w], args.eps, args.samples, rngs[w])
@@ -202,4 +232,5 @@ func spsa(args spsaArgs) {
 		}
 		addVec(args.theta, bufs[0][0], -args.lr/scalar(args.parallel))
 	}
+	fmt.Printf("\r                    \r")
 }

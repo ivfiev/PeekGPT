@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"slices"
 )
 
 type transformer struct {
@@ -26,6 +27,7 @@ type transformer struct {
 	L  matrix // logits
 
 	// training/predictions
+	voc  []rune
 	data []rune
 	tok  map[rune]vector
 	pos  map[int]vector
@@ -131,6 +133,7 @@ func (t *transformer) clone() objective {
 	clone.data = t.data
 	clone.tok = t.tok
 	clone.pos = t.pos
+	clone.voc = t.voc
 	return clone
 }
 
@@ -139,7 +142,11 @@ func (t *transformer) loadXs(window []rune) {
 		log.Fatal("too long xs")
 	}
 	for i := range window {
-		copy(t.xs[i], t.tok[window[i]])
+		tok, ok := t.tok[window[i]]
+		if !ok {
+			log.Fatalf("loadXs: token %c is invalid", window[i])
+		}
+		copy(t.xs[i], tok)
 		addVec(t.xs[i], t.pos[i], 1)
 	}
 }
@@ -149,14 +156,39 @@ func (t *transformer) loadYs(window []rune) {
 		log.Fatal("too long ys")
 	}
 	for i := range window {
-		t.ys[i] = int(window[i] - rune('a'))
+		ix := slices.Index(t.voc, window[i])
+		if ix == -1 {
+			log.Fatalf("loadYs: token %c is invalid", window[i])
+		}
+		t.ys[i] = ix
 	}
 }
 
 func (t *transformer) predict(ctx []rune) {
 	t.loadXs(ctx)
 	t.run()
-	printMat(t.L)
-	_, i := rowMax(t.L[len(ctx)-1])
-	fmt.Printf("%c\n", t.data[i])
+	// printMat(t.L)
+	tokIx := len(ctx) - 1
+	rm, i := rowMax(t.L[tokIx])
+	sum := 0.0
+	for j := range t.L[tokIx] {
+		sum += math.Exp(float64(t.L[tokIx][j] - rm))
+	}
+	prob := math.Exp(float64(t.L[tokIx][i]-rm)) / sum
+	fmt.Printf("%s -> %c (%.3f)\n", string(ctx), t.voc[i], prob)
+}
+
+func (t *transformer) generate(ctx []rune, n int) {
+	fmt.Printf("%s", string(ctx))
+	for range n {
+		t.loadXs(ctx)
+		t.run()
+		tokIx := len(ctx) - 1
+		// printVec(t.L[tokIx])
+		i := softSample(t.L[tokIx])
+		fmt.Printf("%c", t.voc[i])
+		ctx = append(ctx, t.voc[i])
+		ctx = ctx[max(0, len(ctx)-t.context):]
+	}
+	println()
 }

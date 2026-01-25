@@ -34,6 +34,7 @@ func TestAbcdefgh(te *testing.T) {
 	t.data = data
 	t.pos = positions
 	t.tok = tokens
+	t.voc = []rune("abcdefgh")
 	theta := make(vector, t.size())
 	for i := range len(theta) {
 		theta[i] = scalar(rng.Float32() - 0.5)
@@ -50,6 +51,7 @@ func TestAbcdefgh(te *testing.T) {
 	})
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
+	println(loss)
 	if loss != +5.310528e-001 {
 		te.Error("loss has changed")
 	} else {

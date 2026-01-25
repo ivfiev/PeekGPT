@@ -6,32 +6,30 @@ import (
 	"time"
 )
 
+func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
+	dModel := vocab + ctx
+	tokens := map[rune]vector{}
+	pos := map[int]vector{}
+	for i := range vocab {
+		tokens[toks[i]] = onehot(dModel, i)
+	}
+	for i := range ctx {
+		pos[i] = onehot(dModel, vocab+i)
+	}
+	return tokens, pos
+}
+
 func main() {
-	tokens := map[rune]vector{
-		'a': onehot(16, 0),
-		'b': onehot(16, 1),
-		'c': onehot(16, 2),
-		'd': onehot(16, 3),
-		'e': onehot(16, 4),
-		'f': onehot(16, 5),
-		'g': onehot(16, 6),
-		'h': onehot(16, 7),
-	}
-	positions := map[int]vector{
-		0: onehot(16, 8),
-		1: onehot(16, 9),
-		2: onehot(16, 10),
-		3: onehot(16, 11),
-		4: onehot(16, 12),
-		5: onehot(16, 13),
-		6: onehot(16, 14),
-		7: onehot(16, 15),
-	}
+	toks := []rune("123")
+	dVocab := 3
+	context := 8
+	tokens, positions := embeds(dVocab, context, toks)
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
-	data := []rune("abcdefghabcdefgh")
-	t := newT(8, 16, 8)
+	data := []rune("123123123123123123")
+	t := newT(context, dVocab+context, dVocab)
 	t.data = data
+	t.voc = toks
 	t.pos = positions
 	t.tok = tokens
 	theta := make(vector, t.size())
@@ -43,7 +41,7 @@ func main() {
 		theta:    theta,
 		iters:    10000,
 		samples:  1,
-		parallel: 4,
+		parallel: 1,
 		lr:       0.1,
 		eps:      0.0001,
 		seed:     seed,
@@ -51,4 +49,11 @@ func main() {
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
 	println(loss)
+	t.generate([]rune("12312312"), 10)
+
+	// todos
+	// print attn
+	// run spsa for a few hundred, print stats, switch batch, run again
+	// data := []rune("x|1,xx|2,xxx|3,xxxx|4,xxxxx|5,") train ctx "xxxx|(?)"
+	// persist theta to file, or open a session
 }

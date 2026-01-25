@@ -128,15 +128,6 @@ func (t *transformer) size() int {
 	return len(t.keys)*len(t.keys[0]) + len(t.queries)*len(t.queries[0]) + len(t.values)*len(t.values[0]) + len(t.linear)*len(t.linear[0]) + len(t.bias)
 }
 
-func (t *transformer) clone() objective {
-	clone := newT(t.context, t.dModel, t.dVocab)
-	clone.data = t.data
-	clone.tok = t.tok
-	clone.pos = t.pos
-	clone.voc = t.voc
-	return clone
-}
-
 func (t *transformer) loadXs(window []rune) {
 	if len(window) > t.context {
 		log.Fatal("too long xs")
@@ -167,7 +158,7 @@ func (t *transformer) loadYs(window []rune) {
 func (t *transformer) predict(ctx []rune) {
 	t.loadXs(ctx)
 	t.run()
-	// printMat(t.L)
+	printMat(t.L)
 	tokIx := len(ctx) - 1
 	rm, i := rowMax(t.L[tokIx])
 	sum := 0.0
@@ -191,4 +182,27 @@ func (t *transformer) generate(ctx []rune, n int) {
 		ctx = ctx[max(0, len(ctx)-t.context):]
 	}
 	println()
+}
+
+func (t *transformer) peek() {
+	printMat(t.xs)
+	printMat(t.Q)
+	printMat(t.K)
+	printMat(t.QK)
+	printMat(t.S)
+	printMat(t.V)
+	printMat(t.L)
+}
+
+func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
+	dModel := vocab + ctx
+	tokens := map[rune]vector{}
+	pos := map[int]vector{}
+	for i := range vocab {
+		tokens[toks[i]] = onehot(dModel, i)
+	}
+	for i := range ctx {
+		pos[i] = onehot(dModel, vocab+i)
+	}
+	return tokens, pos
 }

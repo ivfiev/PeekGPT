@@ -6,19 +6,6 @@ import (
 	"time"
 )
 
-func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
-	dModel := vocab + ctx
-	tokens := map[rune]vector{}
-	pos := map[int]vector{}
-	for i := range vocab {
-		tokens[toks[i]] = onehot(dModel, i)
-	}
-	for i := range ctx {
-		pos[i] = onehot(dModel, vocab+i)
-	}
-	return tokens, pos
-}
-
 func main() {
 	toks := []rune("123")
 	dVocab := 3
@@ -36,20 +23,13 @@ func main() {
 	for i := range len(theta) {
 		theta[i] = scalar(rng.Float32() - 0.5)
 	}
-	spsa(spsaArgs{
-		obj:      t,
-		theta:    theta,
-		iters:    10000,
-		samples:  1,
-		parallel: 1,
-		lr:       0.1,
-		eps:      0.0001,
-		seed:     seed,
-	})
+	spsa(t, theta, 10000, 0.1, 0.0001, seed)
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
 	println(loss)
-	t.generate([]rune("12312312"), 10)
+	// t.generate([]rune("12312312"), 10)
+	t.predict([]rune("123"))
+	t.peek()
 
 	// todos
 	// print attn

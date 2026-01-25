@@ -39,27 +39,13 @@ func TestAbcdefgh(te *testing.T) {
 	for i := range len(theta) {
 		theta[i] = scalar(rng.Float32() - 0.5)
 	}
-	spsa(spsaArgs{
-		obj:      t,
-		theta:    theta,
-		iters:    10000,
-		samples:  1,
-		parallel: 4,
-		lr:       0.1,
-		eps:      0.0001,
-		seed:     seed,
-	})
+	spsa(t, theta, 10000, 0.1, 0.0001, seed)
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
 	println(loss)
-	if loss != +5.310528e-001 {
+	if loss != +5.25049865246e-001 {
 		te.Error("loss has changed")
 	} else {
-		// tr.Predict([]rune("abcdefgh"))
-		// println()
-		// tr.Predict([]rune("bcdefgha"))
-		// println()
-		// tr.Predict([]rune("fghabcde"))
 		t.predict([]rune("defg"))
 	}
 }

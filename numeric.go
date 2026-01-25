@@ -5,7 +5,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"sync"
 )
 
 type (
@@ -16,8 +15,6 @@ type (
 
 type objective interface {
 	eval(vector) scalar
-	size() int
-	clone() objective
 }
 
 func makeMat(n, m int) matrix {
@@ -177,60 +174,26 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsaSample(obj objective, theta vector, bufs []vector, eps scalar, count int, rng *rand.Rand) {
-	mulVec(bufs[0], 0)
-	copy(bufs[2], theta)
-	for range count {
-		rademacher(bufs[1], rng)
-		addVec(bufs[2], bufs[1], eps)
-		plus := obj.eval(bufs[2])
-		addVec(bufs[2], bufs[1], -2*eps)
-		minus := obj.eval(bufs[2])
-		d := (plus - minus) / (2 * eps)
-		addVec(bufs[0], bufs[1], d)
-	}
-	mulVec(bufs[0], 1/scalar(count))
-}
-
-type spsaArgs struct {
-	obj      objective
-	theta    vector
-	iters    int
-	samples  int // per-goroutine
-	parallel int
-	lr       scalar
-	eps      scalar
-	seed     int64
-}
-
-func spsa(args spsaArgs) {
-	objs := make([]objective, args.parallel)
-	bufs := make([][]vector, args.parallel)
-	rngs := make([]*rand.Rand, args.parallel)
-	for i := range args.parallel {
-		objs[i] = args.obj.clone()
-		bufs[i] = make([]vector, 4)
-		for j := range len(bufs[i]) {
-			bufs[i][j] = make(vector, args.obj.size())
-		}
-		rngs[i] = rand.New(rand.NewSource(args.seed + int64(i*1000)))
-	}
-	var wg sync.WaitGroup
-	for i := range args.iters {
+func spsa(obj objective, theta vector, iters int, lr, eps scalar, seed int64) {
+	binary := make(vector, len(theta))
+	tmp := make(vector, len(theta))
+	rng := rand.New(rand.NewSource(seed))
+	for i := range iters {
 		if i%250 == 0 {
-			current := objs[0].eval(args.theta)
-			fmt.Printf("\r%%%d %.4f %.4f ", int(float32(i)/float32(args.iters)*100), current, math.Exp(-float64(current)))
+			current := obj.eval(theta)
+			fmt.Printf("\r%%%d %.4f %.4f ",
+				int(float32(i)/float32(iters)*100),
+				current,
+				math.Exp(-float64(current)))
 		}
-		for w := range args.parallel {
-			wg.Go(func() {
-				spsaSample(objs[w], args.theta, bufs[w], args.eps, args.samples, rngs[w])
-			})
-		}
-		wg.Wait()
-		for i := 1; i < args.parallel; i++ {
-			addVec(bufs[0][0], bufs[i][0], 1)
-		}
-		addVec(args.theta, bufs[0][0], -args.lr/scalar(args.parallel))
+		copy(tmp, theta) // noisy!
+		rademacher(binary, rng)
+		addVec(tmp, binary, eps)
+		plus := obj.eval(tmp)
+		addVec(tmp, binary, -2*eps)
+		minus := obj.eval(tmp)
+		d := (plus - minus) / (2 * eps)
+		addVec(theta, binary, -d*lr)
 	}
 	fmt.Printf("\r                    \r")
 }

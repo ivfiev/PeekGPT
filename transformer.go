@@ -18,12 +18,19 @@ type transformer struct {
 	linear matrix
 	bias   vector
 
-	K matrix
-	Q matrix
-	Z matrix
-	S matrix
-	V matrix
-	L matrix
+	K  matrix
+	Q  matrix
+	QK matrix
+	S  matrix
+	V  matrix
+	L  matrix // logits
+
+	// training/predictions
+	data []rune
+	tok  map[rune]vector
+	pos  map[int]vector
+	xs   matrix
+	ys   []int
 }
 
 func newT(ctx, dModel, dVocab int) *transformer {
@@ -39,27 +46,45 @@ func newT(ctx, dModel, dVocab int) *transformer {
 	t.bias = make(vector, dVocab)
 	t.K = makeMat(ctx, ctx)
 	t.Q = makeMat(ctx, ctx)
-	t.Z = makeMat(ctx, ctx)
+	t.QK = makeMat(ctx, ctx)
 	t.S = makeMat(ctx, ctx)
 	t.V = makeMat(ctx, dModel)
 	t.L = makeMat(ctx, dVocab)
+	t.xs = makeMat(t.context, t.dModel)
+	t.ys = make([]int, t.context)
 	return &t
 }
 
-func (t *transformer) run(embeds matrix) matrix {
-	if len(embeds) != t.context || len(embeds[0]) != t.dModel {
-		log.Fatalf("run: bad inputs")
-	}
-	mulMatT(t.Q, embeds, t.queries)
-	mulMatT(t.K, embeds, t.keys)
-	mulMatT(t.Z, t.Q, t.K)
+func (t *transformer) run() {
+	mulMatT(t.Q, t.xs, t.queries)
+	mulMatT(t.K, t.xs, t.keys)
+	mulMatT(t.QK, t.Q, t.K)
 	d := 1 / scalar(math.Sqrt(float64(t.dModel)))
-	mulMatK(t.Z, d)
-	softmax(t.S, t.Z)
+	mulMatK(t.QK, d)
+	softmax(t.S, t.QK)
 	mulMatT(t.V, t.S, t.values)
 	mulMat(t.L, t.V, t.linear)
 	addMatV(t.L, t.bias)
-	return t.L
+}
+
+func (t *transformer) eval(theta vector) scalar {
+	t.apply(theta)
+	loss := scalar(0.0)
+	for w := range len(t.data) - t.context { // this assumes full-context training
+		t.loadXs(t.data[w : w+t.context])
+		t.loadYs(t.data[w+1 : w+t.context+1])
+		t.run()
+		for i := range len(t.L) {
+			rowMax, _ := rowMax(t.L[i])
+			sum := 0.0
+			for j := range len(t.L[i]) {
+				sum += math.Exp(float64(t.L[i][j] - rowMax))
+			}
+			loss += -t.L[i][t.ys[i]] + rowMax + scalar(math.Log(sum))
+		}
+	}
+	loss /= scalar(t.context * (len(t.data) - t.context))
+	return scalar(loss)
 }
 
 func (t *transformer) apply(theta vector) {
@@ -97,80 +122,41 @@ func (t *transformer) apply(theta vector) {
 	}
 }
 
-// training
-type training struct {
-	t    *transformer
-	data []rune
-	tok  map[rune]vector
-	pos  map[int]vector
-	xs   matrix
-	ys   []int
-}
-
-func (tr *training) Size() int {
-	t := tr.t
+func (t *transformer) size() int {
 	return len(t.keys)*len(t.keys[0]) + len(t.queries)*len(t.queries[0]) + len(t.values)*len(t.values[0]) + len(t.linear)*len(t.linear[0]) + len(t.bias)
 }
 
-func (tr *training) Clone() Objective {
-	clone := training{t: newT(tr.t.context, tr.t.dModel, tr.t.dVocab), data: tr.data, tok: tr.tok, pos: tr.pos}
-	return &clone
+func (t *transformer) clone() objective {
+	clone := newT(t.context, t.dModel, t.dVocab)
+	clone.data = t.data
+	clone.tok = t.tok
+	clone.pos = t.pos
+	return clone
 }
 
-func (tr *training) load(window []rune) {
+func (t *transformer) loadXs(window []rune) {
+	if len(window) > t.context {
+		log.Fatal("too long xs")
+	}
 	for i := range window {
-		copy(tr.xs[i], tr.tok[window[i]])
-		addVec(tr.xs[i], tr.pos[i], 1)
+		copy(t.xs[i], t.tok[window[i]])
+		addVec(t.xs[i], t.pos[i], 1)
 	}
 }
 
-func (tr *training) Eval(theta vector) scalar {
-	if tr.xs == nil {
-		tr.xs = makeMat(tr.t.context, tr.t.dModel)
+func (t *transformer) loadYs(window []rune) {
+	if len(window) > t.context {
+		log.Fatal("too long ys")
 	}
-	if tr.ys == nil {
-		tr.ys = make([]int, tr.t.context)
+	for i := range window {
+		t.ys[i] = int(window[i] - rune('a'))
 	}
-	tr.t.apply(theta)
-	loss := scalar(0.0)
-	for w := range len(tr.data) - tr.t.context {
-		tr.load(tr.data[w : w+tr.t.context])
-		yrs := tr.data[w+1 : w+tr.t.context+1]
-		for i := range yrs {
-			tr.ys[i] = int(yrs[i] - rune('a'))
-		}
-		ys := tr.t.run(tr.xs)
-		for i := range len(ys) {
-			rowMax := scalar(math.Inf(-1))
-			for j := range len(ys[0]) {
-				if ys[i][j] > rowMax {
-					rowMax = ys[i][j]
-				}
-			}
-			sum := 0.0
-			for j := range len(ys[0]) {
-				sum += math.Exp(float64(ys[i][j] - rowMax))
-			}
-			loss += -ys[i][tr.ys[i]] + rowMax + scalar(math.Log(sum))
-		}
-	}
-	loss /= scalar(tr.t.context * (len(tr.data) - tr.t.context))
-	println(loss)
-	return scalar(loss)
 }
 
-func (tr *training) Predict(ctx []rune) {
-	tr.load(ctx)
-	tr.t.run(tr.xs)
-	printMat(tr.t.L)
-	rowMax := scalar(-9999)
-	maxI := -1
-	row := tr.t.L[len(ctx)-1]
-	for i, v := range row {
-		if v > rowMax {
-			rowMax = v
-			maxI = i
-		}
-	}
-	fmt.Printf("%c\n", tr.data[maxI])
+func (t *transformer) predict(ctx []rune) {
+	t.loadXs(ctx)
+	t.run()
+	printMat(t.L)
+	_, i := rowMax(t.L[len(ctx)-1])
+	fmt.Printf("%c\n", t.data[i])
 }

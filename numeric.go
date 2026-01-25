@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/rand"
 	"sync"
-	"time"
 )
 
 type (
@@ -15,10 +14,10 @@ type (
 	matrix [][]scalar
 )
 
-type Objective interface {
-	Eval(vector) scalar
-	Size() int
-	Clone() Objective
+type objective interface {
+	eval(vector) scalar
+	size() int
+	clone() objective
 }
 
 func makeMat(n, m int) matrix {
@@ -103,6 +102,18 @@ func addVec(v, u vector, k scalar) {
 	}
 }
 
+func rowMax(row vector) (scalar, int) {
+	rowMax := scalar(math.Inf(-1))
+	i := -1
+	for j := range row {
+		if row[j] > rowMax {
+			rowMax = row[j]
+			i = j
+		}
+	}
+	return rowMax, i
+}
+
 func softmax(s, a matrix) {
 	if len(a) != len(a[0]) || len(s) != len(s[0]) {
 		log.Panicf("softmax: A & S must be square")
@@ -110,12 +121,7 @@ func softmax(s, a matrix) {
 	mulMatK(s, 0)
 	for i := range a {
 		triangle := i + 1 // len(a[0]) - i
-		rowMax := scalar(math.Inf(-1))
-		for j := range triangle {
-			if a[i][j] > rowMax {
-				rowMax = a[i][j]
-			}
-		}
+		rowMax, _ := rowMax(a[i][:triangle])
 		var sum scalar
 		for j := range triangle {
 			f := scalar(math.Exp(float64(a[i][j] - rowMax)))
@@ -139,44 +145,61 @@ func rademacher(v vector, rng *rand.Rand) vector {
 	return v
 }
 
-func spsaSample(obj Objective, theta vector, bufs []vector, eps scalar, count int, rng *rand.Rand) {
+func onehot(dim, ix int) vector {
+	v := make(vector, dim)
+	v[ix] = 1
+	return v
+}
+
+func spsaSample(obj objective, theta vector, bufs []vector, eps scalar, count int, rng *rand.Rand) {
 	mulVec(bufs[0], 0)
 	copy(bufs[2], theta)
 	for range count {
 		rademacher(bufs[1], rng)
 		addVec(bufs[2], bufs[1], eps)
-		plus := obj.Eval(bufs[2])
+		plus := obj.eval(bufs[2])
 		addVec(bufs[2], bufs[1], -2*eps)
-		minus := obj.Eval(bufs[2])
+		minus := obj.eval(bufs[2])
 		d := (plus - minus) / (2 * eps)
 		addVec(bufs[0], bufs[1], d)
 	}
 	mulVec(bufs[0], 1/scalar(count))
 }
 
-func spsa(obj Objective, theta vector, iters, samples, parallel int, lRate, eps scalar) {
-	objs := make([]Objective, parallel)
-	bufs := make([][]vector, parallel)
-	rngs := make([]*rand.Rand, parallel)
-	for i := range parallel {
-		objs[i] = obj.Clone()
+type spsaArgs struct {
+	obj      objective
+	theta    vector
+	iters    int
+	samples  int // per-goroutine
+	parallel int
+	lr       scalar
+	eps      scalar
+	seed     int64
+}
+
+func spsa(args spsaArgs) {
+	objs := make([]objective, args.parallel)
+	bufs := make([][]vector, args.parallel)
+	rngs := make([]*rand.Rand, args.parallel)
+	for i := range args.parallel {
+		objs[i] = args.obj.clone()
 		bufs[i] = make([]vector, 4)
 		for j := range len(bufs[i]) {
-			bufs[i][j] = make(vector, obj.Size())
+			bufs[i][j] = make(vector, args.obj.size())
 		}
-		rngs[i] = rand.New(rand.NewSource(time.Now().UnixNano() + int64(i*1000)))
+		rngs[i] = rand.New(rand.NewSource(args.seed + int64(i*1000)))
 	}
 	var wg sync.WaitGroup
-	for range iters {
-		for w := range parallel {
+	for range args.iters {
+		for w := range args.parallel {
 			wg.Go(func() {
-				spsaSample(objs[w], theta, bufs[w], eps, samples, rngs[w])
+				spsaSample(objs[w], args.theta, bufs[w], args.eps, args.samples, rngs[w])
 			})
 		}
 		wg.Wait()
-		for i := 1; i < parallel; i++ {
+		for i := 1; i < args.parallel; i++ {
 			addVec(bufs[0][0], bufs[i][0], 1)
 		}
-		addVec(theta, bufs[0][0], -lRate/scalar(parallel))
+		addVec(args.theta, bufs[0][0], -args.lr/scalar(args.parallel))
 	}
 }

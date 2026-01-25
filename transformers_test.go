@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"time"
+	"testing"
 )
 
-func main() {
+func TestAbcdefgh(te *testing.T) {
 	tokens := map[rune]vector{
 		'a': onehot(16, 0),
 		'b': onehot(16, 1),
@@ -27,7 +27,7 @@ func main() {
 		6: onehot(16, 14),
 		7: onehot(16, 15),
 	}
-	seed := time.Now().UnixNano()
+	var seed int64 = 7357
 	rng := rand.New(rand.NewSource(seed))
 	data := []rune("abcdefghabcdefgh")
 	t := newT(8, 16, 8)
@@ -50,5 +50,14 @@ func main() {
 	})
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
-	println(loss)
+	if loss != +5.310528e-001 {
+		te.Error("loss has changed")
+	} else {
+		// tr.Predict([]rune("abcdefgh"))
+		// println()
+		// tr.Predict([]rune("bcdefgha"))
+		// println()
+		// tr.Predict([]rune("fghabcde"))
+		t.predict([]rune("defg"))
+	}
 }

@@ -9,7 +9,7 @@ import (
 func main() {
 	toks := []rune("123")
 	dVocab := 3
-	context := 8
+	context := 4
 	tokens, positions := embeds(dVocab, context, toks)
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
@@ -26,10 +26,10 @@ func main() {
 	spsa(t, theta, 10000, 0.1, 0.0001, seed)
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
-	println(loss)
-	// t.generate([]rune("12312312"), 10)
-	t.predict([]rune("123"))
 	t.peek()
+	println(loss)
+	t.generate([]rune("1231"), 10)
+	t.predict([]rune("1231"))
 
 	// todos
 	// print attn

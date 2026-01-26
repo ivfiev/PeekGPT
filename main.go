@@ -11,9 +11,9 @@ import (
 
 func main() {
 	reader := bufio.NewReader(os.Stdin)
-	ctx := 4
+	ctx := 8
 	seed := time.Now().UnixNano()
-	t := trainModel(ctx, []rune("112112112"), 5, seed, 35000, 0.05, 0.0001)
+	t := trainModel(ctx, []rune("aa|bb|aa|bb|aa|bb"), 4, seed, 35000, 0.05, 0.0001)
 	for {
 		fmt.Printf("Enter context, up to %d chars: ", ctx)
 		input, err := reader.ReadString('\n')

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"slices"
+	"sync"
 )
 
 type transformer struct {
@@ -184,8 +186,12 @@ func (t *transformer) generate(ctx []rune, n int) {
 	println()
 }
 
-func (t *transformer) peek() {
+func (t *transformer) peek(ctx []rune) {
+	mulMatK(t.xs, 0)
+	t.loadXs(ctx)
+	t.run()
 	println()
+	fmt.Println("Full breakdown:")
 	fmt.Println("Input embeddings (xs)")
 	printMat(t.xs)
 	println()
@@ -222,7 +228,49 @@ func (t *transformer) peek() {
 	fmt.Println("Logits (V * linear + bias)")
 	printMat(t.L)
 	println()
-	// work out individual results for the last vec in ctx
+	fmt.Println("Detailed breakdown for the last token:")
+	lastIx := len(ctx) - 1
+	fmt.Println("Last token's embedding:")
+	printVec(t.xs[lastIx])
+	println()
+	fmt.Println("Last token's Query:")
+	printVec(t.Q[lastIx])
+	println()
+	fmt.Println("Available Keys:")
+	printMat(t.K)
+	println()
+	fmt.Println("Raw scores against Keys (QKT):")
+	printVec(t.QK[lastIx])
+	println()
+	fmt.Println("Normalized Softmax scores:")
+	printVec(t.S[lastIx])
+	println()
+	fmt.Println("Linearly combine Value columns (fuzzy dict):")
+	printMat(t.values)
+	println()
+	fmt.Println("To get the final Value:")
+	printVec(t.V[lastIx])
+	println()
+	fmt.Println("Lineraly combine Linear layer rows:")
+	printMat(t.linear)
+	println()
+	fmt.Println("And add Bias:")
+	printVec(t.bias)
+	println()
+	fmt.Println("To get the final Logits:")
+	printVec(t.L[lastIx])
+	println()
+	fmt.Printf("Input: [%s]\n", string(ctx))
+	fmt.Println("Token probabilities:")
+	rm, _ := rowMax(t.L[lastIx])
+	sum := 0.0
+	for _, x := range t.L[lastIx] {
+		sum += math.Exp(x - rm)
+	}
+	for i, x := range t.L[lastIx] {
+		fmt.Printf("[%c] -> %.6f\n", t.voc[i], math.Exp(x-rm)/sum)
+	}
+	println()
 }
 
 func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
@@ -236,4 +284,60 @@ func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
 		pos[i] = onehot(dModel, vocab+i)
 	}
 	return tokens, pos
+}
+
+func trainModel(context int, data []rune, parallelism int, seed int64, iters int, lr, eps float64) *transformer {
+	vocab := make([]rune, 0, len(data))
+	vocmap := map[rune]struct{}{}
+	for _, tok := range data {
+		_, ok := vocmap[tok]
+		if !ok {
+			vocab = append(vocab, tok)
+			vocmap[tok] = struct{}{}
+		}
+	}
+	tokens, positions := embeds(len(vocab), context, vocab)
+	models := make([]*transformer, parallelism)
+	thetas := make([]vector, parallelism)
+	rngs := make([]*rand.Rand, parallelism)
+	for i := range parallelism {
+		t := newT(context, len(vocab)+context, len(vocab))
+		t.data = data
+		t.voc = vocab
+		t.pos = positions
+		t.tok = tokens
+		models[i] = t
+		rngs[i] = rand.New(rand.NewSource(seed + 1000*int64(i)))
+		thetas[i] = make(vector, t.size())
+		for t := range len(thetas[i]) {
+			thetas[i][t] = rngs[i].Float64() - 0.5
+		}
+	}
+	var wg sync.WaitGroup
+	for i := range parallelism {
+		wg.Go(func() {
+			spsa(models[i], thetas[i], iters, lr, eps, rngs[i])
+		})
+	}
+	wg.Wait()
+	winner := -1
+	minLoss := math.Inf(1)
+	for i := range parallelism {
+		loss := models[i].eval(thetas[i])
+		if loss < minLoss {
+			minLoss = loss
+			winner = i
+		}
+		fmt.Printf("Model %d has loss %.4f\n", i, loss)
+	}
+	fmt.Printf("The winner is %d! (%d parameters, d_model %d, ctx %d, vocab %d, %.4f loss)\n",
+		winner,
+		models[winner].size(),
+		models[winner].dModel,
+		models[winner].context,
+		models[winner].dVocab,
+		models[winner].eval(thetas[winner]))
+	fmt.Printf("Seed used %d\n", seed)
+	// models[winner].apply(thetas[winner])
+	return models[winner]
 }

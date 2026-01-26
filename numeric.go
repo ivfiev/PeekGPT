@@ -75,18 +75,18 @@ func addMatV(a matrix, v vector) {
 
 func printMat(a matrix) {
 	for _, row := range a {
-		fmt.Printf("[ ")
+		fmt.Printf("[")
 		for _, Anm := range row {
-			fmt.Printf("%.3f ", Anm)
+			fmt.Printf("%6.3f ", Anm)
 		}
 		fmt.Printf("]\n")
 	}
 }
 
 func printVec(v vector) {
-	fmt.Printf("[ ")
+	fmt.Printf("[")
 	for _, x := range v {
-		fmt.Printf("%.3f ", x)
+		fmt.Printf("%6.3f ", x)
 	}
 	fmt.Printf("]\n")
 }
@@ -126,6 +126,9 @@ func softmax(s, a matrix) {
 	for i := range a {
 		triangle := i + 1 // len(a[0]) - i
 		rowMax, _ := rowMax(a[i][:triangle])
+		if rowMax == 0 {
+			continue
+		}
 		var sum float64
 		for j := range triangle {
 			f := math.Exp(a[i][j] - rowMax)
@@ -173,18 +176,10 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsa(obj objective, theta vector, iters int, lr, eps float64, seed int64) {
+func spsa(obj objective, theta vector, iters int, lr, eps float64, rng *rand.Rand) {
 	binary := make(vector, len(theta))
 	delta := make(vector, len(theta))
-	rng := rand.New(rand.NewSource(seed))
-	for i := range iters {
-		if i%250 == 0 {
-			current := obj.eval(theta)
-			fmt.Printf("\r%%%d %.4f %.4f ",
-				int(float32(i)/float32(iters)*100),
-				current,
-				math.Exp(-current))
-		}
+	for range iters {
 		copy(delta, theta) // noisy!
 		rademacher(binary, rng)
 		addVec(delta, binary, eps)
@@ -194,5 +189,4 @@ func spsa(obj objective, theta vector, iters int, lr, eps float64, seed int64) {
 		d := (plus - minus) / (2 * eps)
 		addVec(theta, binary, -d*lr)
 	}
-	fmt.Printf("\r                    \r")
 }

@@ -21,7 +21,7 @@ func main() {
 	t.tok = tokens
 	theta := make(vector, t.size())
 	for i := range len(theta) {
-		theta[i] = scalar(rng.Float32() - 0.5)
+		theta[i] = rng.Float64() - 0.5
 	}
 	spsa(t, theta, 10000, 0.1, 0.0001, seed)
 	fmt.Printf("%v\n", len(theta))
@@ -32,8 +32,8 @@ func main() {
 	t.predict([]rune("1231"))
 
 	// todos
-	// print attn
+	// print attn, detailed breakdown of last token
+	// multiple models can be trained in parallel. quality evaluation. storage of weights?
 	// run spsa for a few hundred, print stats, switch batch, run again
 	// data := []rune("x|1,xx|2,xxx|3,xxxx|4,xxxxx|5,") train ctx "xxxx|(?)"
-	// persist theta to file, or open a session
 }

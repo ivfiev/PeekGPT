@@ -61,7 +61,7 @@ func (t *transformer) run() {
 	mulMatT(t.Q, t.xs, t.queries)
 	mulMatT(t.K, t.xs, t.keys)
 	mulMatT(t.QK, t.Q, t.K)
-	d := 1 / scalar(math.Sqrt(float64(t.dModel)))
+	d := 1 / math.Sqrt(float64(t.dModel))
 	mulMatK(t.QK, d)
 	softmax(t.S, t.QK)
 	mulMatT(t.V, t.S, t.values)
@@ -69,9 +69,9 @@ func (t *transformer) run() {
 	addMatV(t.L, t.bias)
 }
 
-func (t *transformer) eval(theta vector) scalar {
+func (t *transformer) eval(theta vector) float64 {
 	t.apply(theta)
-	loss := scalar(0.0)
+	loss := 0.0
 	for w := range len(t.data) - t.context { // this assumes full-context training
 		t.loadXs(t.data[w : w+t.context])
 		t.loadYs(t.data[w+1 : w+t.context+1])
@@ -80,13 +80,13 @@ func (t *transformer) eval(theta vector) scalar {
 			rowMax, _ := rowMax(t.L[i])
 			sum := 0.0
 			for j := range len(t.L[i]) {
-				sum += math.Exp(float64(t.L[i][j] - rowMax))
+				sum += math.Exp(t.L[i][j] - rowMax)
 			}
-			loss += -t.L[i][t.ys[i]] + rowMax + scalar(math.Log(sum))
+			loss += -t.L[i][t.ys[i]] + rowMax + math.Log(sum)
 		}
 	}
-	loss /= scalar(t.context * (len(t.data) - t.context))
-	return scalar(loss)
+	loss /= float64(t.context * (len(t.data) - t.context))
+	return loss
 }
 
 func (t *transformer) apply(theta vector) {
@@ -163,9 +163,9 @@ func (t *transformer) predict(ctx []rune) {
 	rm, i := rowMax(t.L[tokIx])
 	sum := 0.0
 	for j := range t.L[tokIx] {
-		sum += math.Exp(float64(t.L[tokIx][j] - rm))
+		sum += math.Exp(t.L[tokIx][j] - rm)
 	}
-	prob := math.Exp(float64(t.L[tokIx][i]-rm)) / sum
+	prob := math.Exp(t.L[tokIx][i]-rm) / sum
 	fmt.Printf("%s -> %c (%.3f)\n", string(ctx), t.voc[i], prob)
 }
 

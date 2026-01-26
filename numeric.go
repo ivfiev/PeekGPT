@@ -8,19 +8,18 @@ import (
 )
 
 type (
-	scalar float32
-	vector []scalar
-	matrix [][]scalar
+	vector []float64
+	matrix [][]float64
 )
 
 type objective interface {
-	eval(vector) scalar
+	eval(vector) float64
 }
 
 func makeMat(n, m int) matrix {
-	rows := make([][]scalar, n)
+	rows := make([][]float64, n)
 	for i := range n {
-		rows[i] = make([]scalar, m)
+		rows[i] = make([]float64, m)
 	}
 	return rows
 }
@@ -31,7 +30,7 @@ func mulMat(c, a, b matrix) {
 	}
 	for i := range a {
 		for j := range b[0] {
-			sum := scalar(0.0)
+			sum := 0.0
 			for k := range b {
 				sum += a[i][k] * b[k][j]
 			}
@@ -46,7 +45,7 @@ func mulMatT(c, a, b matrix) {
 	}
 	for i := range a {
 		for j := range b {
-			sum := scalar(0.0)
+			sum := 0.0
 			for k := range b[0] {
 				sum += a[i][k] * b[j][k]
 			}
@@ -55,7 +54,7 @@ func mulMatT(c, a, b matrix) {
 	}
 }
 
-func mulMatK(a matrix, k scalar) {
+func mulMatK(a matrix, k float64) {
 	for i := range a {
 		for j := range a[0] {
 			a[i][j] *= k
@@ -85,20 +84,20 @@ func printMat(a matrix) {
 }
 
 func printVec(v vector) {
-	fmt.Printf("[")
+	fmt.Printf("[ ")
 	for _, x := range v {
 		fmt.Printf("%.3f ", x)
 	}
 	fmt.Printf("]\n")
 }
 
-func mulVec(v vector, k scalar) {
+func mulVec(v vector, k float64) {
 	for i := range len(v) {
 		v[i] *= k
 	}
 }
 
-func addVec(v, u vector, k scalar) {
+func addVec(v, u vector, k float64) {
 	if len(v) != len(u) {
 		log.Panicf("addVec: vectors of invalid lengths, %d & %d\n", len(v), len(u))
 	}
@@ -107,8 +106,8 @@ func addVec(v, u vector, k scalar) {
 	}
 }
 
-func rowMax(row vector) (scalar, int) {
-	rowMax := scalar(math.Inf(-1))
+func rowMax(row vector) (float64, int) {
+	rowMax := math.Inf(-1)
 	i := -1
 	for j := range row {
 		if row[j] > rowMax {
@@ -127,9 +126,9 @@ func softmax(s, a matrix) {
 	for i := range a {
 		triangle := i + 1 // len(a[0]) - i
 		rowMax, _ := rowMax(a[i][:triangle])
-		var sum scalar
+		var sum float64
 		for j := range triangle {
-			f := scalar(math.Exp(float64(a[i][j] - rowMax)))
+			f := math.Exp(a[i][j] - rowMax)
 			s[i][j] = f
 			sum += f
 		}
@@ -160,12 +159,12 @@ func softSample(logits vector) int {
 	rm, _ := rowMax(logits)
 	var sum float64 = 0
 	for i := range logits {
-		sum += math.Exp(float64(logits[i] - rm))
+		sum += math.Exp(logits[i] - rm)
 	}
 	var running float64 = 0
 	r := rand.Float64()
 	for i := range logits {
-		running += math.Exp(float64(logits[i]-rm)) / sum
+		running += math.Exp(logits[i]-rm) / sum
 		if r < running {
 			return i
 		}
@@ -174,9 +173,9 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsa(obj objective, theta vector, iters int, lr, eps scalar, seed int64) {
+func spsa(obj objective, theta vector, iters int, lr, eps float64, seed int64) {
 	binary := make(vector, len(theta))
-	tmp := make(vector, len(theta))
+	delta := make(vector, len(theta))
 	rng := rand.New(rand.NewSource(seed))
 	for i := range iters {
 		if i%250 == 0 {
@@ -184,14 +183,14 @@ func spsa(obj objective, theta vector, iters int, lr, eps scalar, seed int64) {
 			fmt.Printf("\r%%%d %.4f %.4f ",
 				int(float32(i)/float32(iters)*100),
 				current,
-				math.Exp(-float64(current)))
+				math.Exp(-current))
 		}
-		copy(tmp, theta) // noisy!
+		copy(delta, theta) // noisy!
 		rademacher(binary, rng)
-		addVec(tmp, binary, eps)
-		plus := obj.eval(tmp)
-		addVec(tmp, binary, -2*eps)
-		minus := obj.eval(tmp)
+		addVec(delta, binary, eps)
+		plus := obj.eval(delta)
+		addVec(delta, binary, -2*eps)
+		minus := obj.eval(delta)
 		d := (plus - minus) / (2 * eps)
 		addVec(theta, binary, -d*lr)
 	}

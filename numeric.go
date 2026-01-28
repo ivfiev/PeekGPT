@@ -73,6 +73,17 @@ func addMatV(a matrix, v vector) {
 	}
 }
 
+func addMatM(c, a, b matrix) {
+	if len(a) != len(b) || len(a[0]) != len(b[0]) || len(c) != len(a) || len(c[0]) != len(a[0]) {
+		log.Panicf("addMatM: bad dimensions, A: %dx%d, B: %dx%d, C: %dx%d\n", len(a), len(a[0]), len(b), len(b[0]), len(c), len(c[0]))
+	}
+	for i := range len(a) {
+		for j := range len(a[0]) {
+			c[i][j] = a[i][j] + b[i][j]
+		}
+	}
+}
+
 func printMat(a matrix) {
 	for _, row := range a {
 		fmt.Printf("[")
@@ -137,6 +148,33 @@ func softmax(s, a matrix) {
 		}
 		for j := range triangle {
 			s[i][j] /= sum
+		}
+	}
+}
+
+func layerNorm(lnXs, xs matrix, gamma, beta vector) {
+	if len(xs) != len(lnXs) || len(xs[0]) != len(lnXs[0]) || len(gamma) != len(xs[0]) || len(beta) != len(xs[0]) {
+		log.Fatalf("LayerNorm: incompatible dimensions, lnXs: %dx%d, xs: %dx%d, gamma: %d, beta: %d\n",
+			len(lnXs), len(lnXs[0]), len(xs), len(xs[0]), len(gamma), len(beta))
+	}
+	for i := range xs {
+		u := 0.0
+		o2 := 0.0
+		for _, x := range xs[i] {
+			u += x
+		}
+		if u == 0 {
+			continue
+		}
+		u /= float64(len(xs[i]))
+		for _, x := range xs[i] {
+			o2 += (x - u) * (x - u)
+		}
+		o2 /= float64(len(xs[i]))
+		for j := range xs[i] {
+			lnXs[i][j] = (xs[i][j] - u) / math.Sqrt(o2+0.00001)
+			lnXs[i][j] *= gamma[j]
+			lnXs[i][j] += beta[j]
 		}
 	}
 }

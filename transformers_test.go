@@ -35,15 +35,16 @@ func TestAbcdefgh(te *testing.T) {
 	t.pos = positions
 	t.tok = tokens
 	t.voc = []rune("abcdefgh")
+	t.activation = ReLU
 	theta := make(vector, t.size())
 	for i := range len(theta) {
 		theta[i] = rng.Float64() - 0.5
 	}
-	spsa(t, theta, 4500, 0.05, 0.0001, rng)
+	spsa(t, theta, 5000, 0.0075, 0.0001, rng)
 	fmt.Printf("%v\n", len(theta))
 	loss := t.eval(theta)
 	fmt.Printf("%.70f\n", loss)
-	if loss != 0.0274667319047217604877086927217533229850232601165771484375 {
+	if loss != 0.002047088517712724979602523234234467963688075542449951171875 {
 		te.Error("loss has changed")
 	} else {
 		t.predict([]rune("defg"))

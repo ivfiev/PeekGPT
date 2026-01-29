@@ -16,20 +16,30 @@ type transformer struct {
 	dVocab  int
 
 	// pre-attention LayerNorm parameters
-	lnGamma1 vector
-	lnBeta1  vector
+	gamma1 vector
+	beta1  vector
 
 	// attention parameters
 	keys    matrix
 	queries matrix
 	values  matrix
 
+	// pre-MLP LayerNorm parameters
+	gamma2 vector
+	beta2  vector
+
+	// MLP
+	input      matrix
+	activation func(float64) float64
+	hidden     matrix
+
 	// to-logit map parameters
 	linear matrix
 	bias   vector
 
 	// post-LN xs
-	lnXs1 matrix
+	xs1 matrix
+	xs2 matrix
 
 	// attention values
 	K  matrix
@@ -39,7 +49,13 @@ type transformer struct {
 	V  matrix
 
 	// residual values
-	R matrix
+	R1 matrix
+	R2 matrix
+
+	// MLP intermediary states
+	I matrix
+	A matrix
+	H matrix
 
 	// logits
 	L matrix
@@ -62,13 +78,20 @@ func newT(ctx, dModel, dVocab int) *transformer {
 
 	t.xs = makeMat(t.context, t.dModel)
 
-	t.lnGamma1 = make(vector, dModel)
-	t.lnBeta1 = make(vector, dModel)
-	t.lnXs1 = makeMat(t.context, t.dModel)
+	t.gamma1 = make(vector, dModel)
+	t.beta1 = make(vector, dModel)
+	t.xs1 = makeMat(t.context, t.dModel)
 
 	t.queries = makeMat(ctx, dModel)
 	t.keys = makeMat(ctx, dModel)
 	t.values = makeMat(dModel, ctx)
+
+	t.gamma2 = make(vector, dModel)
+	t.beta2 = make(vector, dModel)
+	t.xs2 = makeMat(t.context, t.dModel)
+
+	t.input = makeMat(2*dModel, dModel)
+	t.hidden = makeMat(dModel, 2*dModel)
 
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
@@ -79,7 +102,11 @@ func newT(ctx, dModel, dVocab int) *transformer {
 	t.S = makeMat(ctx, ctx)
 	t.V = makeMat(ctx, dModel)
 	t.L = makeMat(ctx, dVocab)
-	t.R = makeMat(t.context, t.dModel)
+	t.R1 = makeMat(t.context, t.dModel)
+	t.R2 = makeMat(t.context, t.dModel)
+	t.I = makeMat(ctx, 2*dModel)
+	t.A = makeMat(ctx, 2*dModel)
+	t.H = makeMat(ctx, dModel)
 
 	t.ys = make([]int, t.context)
 
@@ -87,16 +114,23 @@ func newT(ctx, dModel, dVocab int) *transformer {
 }
 
 func (t *transformer) run() {
-	layerNorm(t.lnXs1, t.xs, t.lnGamma1, t.lnBeta1)
-	mulMatT(t.Q, t.lnXs1, t.queries)
-	mulMatT(t.K, t.lnXs1, t.keys)
+	layerNorm(t.xs1, t.xs, t.gamma1, t.beta1)
+	mulMatT(t.Q, t.xs1, t.queries)
+	mulMatT(t.K, t.xs1, t.keys)
 	mulMatT(t.QK, t.Q, t.K)
 	d := 1 / math.Sqrt(float64(t.dModel))
 	mulMatK(t.QK, d)
 	softmax(t.S, t.QK)
 	mulMatT(t.V, t.S, t.values)
-	addMatM(t.R, t.xs, t.V)
-	mulMat(t.L, t.R, t.linear)
+	addMatM(t.R1, t.xs, t.V)
+
+	layerNorm(t.xs2, t.R1, t.gamma2, t.beta2)
+	mulMatT(t.I, t.xs2, t.input)
+	mapMat(t.A, t.I, t.activation)
+	mulMatT(t.H, t.A, t.hidden)
+	addMatM(t.R2, t.R1, t.H)
+
+	mulMat(t.L, t.R2, t.linear)
 	addMatV(t.L, t.bias)
 }
 
@@ -122,34 +156,54 @@ func (t *transformer) eval(theta vector) float64 {
 
 func (t *transformer) apply(theta vector) {
 	T := 0
-	for i := range t.lnGamma1 {
-		t.lnGamma1[i] = theta[T]
+	for i := range t.gamma1 {
+		t.gamma1[i] = theta[T]
 		T++
 	}
-	for i := range t.lnBeta1 {
-		t.lnBeta1[i] = theta[T]
+	for i := range t.beta1 {
+		t.beta1[i] = theta[T]
+		T++
+	}
+	for i := range t.gamma2 {
+		t.gamma2[i] = theta[T]
+		T++
+	}
+	for i := range t.beta2 {
+		t.beta2[i] = theta[T]
 		T++
 	}
 	for i := range t.keys {
-		for j := range t.keys[0] {
+		for j := range t.keys[i] {
 			t.keys[i][j] = theta[T]
 			T++
 		}
 	}
 	for i := range t.queries {
-		for j := range t.queries[0] {
+		for j := range t.queries[i] {
 			t.queries[i][j] = theta[T]
 			T++
 		}
 	}
 	for i := range t.values {
-		for j := range t.values[0] {
+		for j := range t.values[i] {
 			t.values[i][j] = theta[T]
 			T++
 		}
 	}
+	for i := range t.input {
+		for j := range t.input[i] {
+			t.input[i][j] = theta[T]
+			T++
+		}
+	}
+	for i := range t.hidden {
+		for j := range t.hidden[i] {
+			t.hidden[i][j] = theta[T]
+			T++
+		}
+	}
 	for i := range t.linear {
-		for j := range t.linear[0] {
+		for j := range t.linear[i] {
 			t.linear[i][j] = theta[T]
 			T++
 		}
@@ -164,10 +218,12 @@ func (t *transformer) apply(theta vector) {
 }
 
 func (t *transformer) size() int {
-	return len(t.lnGamma1) + len(t.lnBeta1) +
+	return len(t.gamma1) + len(t.beta1) +
 		len(t.keys)*len(t.keys[0]) +
 		len(t.queries)*len(t.queries[0]) +
 		len(t.values)*len(t.values[0]) +
+		len(t.gamma2) + len(t.beta2) +
+		len(t.input)*len(t.input[0]) + len(t.hidden)*len(t.hidden[0]) +
 		len(t.linear)*len(t.linear[0]) + len(t.bias)
 }
 
@@ -229,12 +285,15 @@ func (t *transformer) generate(ctx []rune, n int) {
 
 func (t *transformer) peek(ctx []rune) {
 	mulMatK(t.xs, 0)
-	mulMatK(t.lnXs1, 0)
+	mulMatK(t.xs1, 0)
+	mulMatK(t.xs2, 0)
 	mulMatK(t.S, 0)
 	mulMatK(t.QK, 0)
 	mulMatK(t.K, 0)
 	mulMatK(t.Q, 0)
 	mulMatK(t.V, 0)
+	mulMatK(t.I, 0)
+	mulMatK(t.H, 0)
 	t.loadXs(ctx)
 	t.run()
 	println()
@@ -242,9 +301,9 @@ func (t *transformer) peek(ctx []rune) {
 	fmt.Println("Input embeddings (xs)")
 	printMat(t.xs)
 	println()
-	fmt.Println("LayerNorm Gamma & Beta:")
-	printVec(t.lnGamma1)
-	printVec(t.lnBeta1)
+	fmt.Println("First LayerNorm Gamma & Beta:")
+	printVec(t.gamma1)
+	printVec(t.beta1)
 	println()
 	fmt.Println("Queries")
 	printMat(t.queries)
@@ -270,6 +329,16 @@ func (t *transformer) peek(ctx []rune) {
 	fmt.Println("V (softmax * values)")
 	printMat(t.V)
 	println()
+	fmt.Println("Second LayerNorm Gamma & Beta:")
+	printVec(t.gamma2)
+	printVec(t.beta2)
+	println()
+	fmt.Println("MLP Input layer")
+	printMat(t.input)
+	println()
+	fmt.Println("MLP Hidden layer")
+	printMat(t.hidden)
+	println()
 	fmt.Println("Linear")
 	printMat(t.linear)
 	println()
@@ -285,8 +354,8 @@ func (t *transformer) peek(ctx []rune) {
 	fmt.Println("Last token's embedding:")
 	printVec(t.xs[lastIx])
 	println()
-	fmt.Println("After LayerNorm:")
-	printVec(t.lnXs1[lastIx])
+	fmt.Println("After first LayerNorm:")
+	printVec(t.xs1[lastIx])
 	println()
 	fmt.Println("Token's Query:")
 	printVec(t.Q[lastIx])
@@ -311,9 +380,27 @@ func (t *transformer) peek(ctx []rune) {
 	println("+")
 	printVec(t.V[lastIx])
 	println("=")
-	printVec(t.R[lastIx])
+	printVec(t.R1[lastIx])
 	println()
-	// R
+	fmt.Println("After second LayerNorm:")
+	printVec(t.xs2[lastIx])
+	println()
+	fmt.Println("Pass through Input layer:")
+	printVec(t.I[lastIx])
+	println()
+	fmt.Println("Activation:")
+	printVec(t.A[lastIx])
+	println()
+	fmt.Println("Pass through Hidden layer:")
+	printVec(t.H[lastIx])
+	println()
+	fmt.Println("Residual stream:")
+	printVec(t.R1[lastIx])
+	println("+")
+	printVec(t.H[lastIx])
+	println("=")
+	printVec(t.R2[lastIx])
+	println()
 	fmt.Println("Dot product with Linear layer rows:")
 	printMat(t.linear)
 	println()
@@ -338,34 +425,54 @@ func (t *transformer) peek(ctx []rune) {
 
 func (t *transformer) rand(rng *rand.Rand) {
 	T := 0
-	for i := range t.lnGamma1 {
-		t.lnGamma1[i] = 1
+	for i := range t.gamma1 {
+		t.gamma1[i] = 1
 		T++
 	}
-	for i := range t.lnBeta1 {
-		t.lnBeta1[i] = 0
+	for i := range t.beta1 {
+		t.beta1[i] = 0
+		T++
+	}
+	for i := range t.gamma2 {
+		t.gamma2[i] = 1
+		T++
+	}
+	for i := range t.beta2 {
+		t.beta2[i] = 0
 		T++
 	}
 	for i := range t.keys {
-		for j := range t.keys[0] {
+		for j := range t.keys[i] {
 			t.keys[i][j] = rng.Float64() - 0.5
 			T++
 		}
 	}
 	for i := range t.queries {
-		for j := range t.queries[0] {
+		for j := range t.queries[i] {
 			t.queries[i][j] = rng.Float64() - 0.5
 			T++
 		}
 	}
 	for i := range t.values {
-		for j := range t.values[0] {
+		for j := range t.values[i] {
 			t.values[i][j] = rng.Float64() - 0.5
 			T++
 		}
 	}
+	for i := range t.input {
+		for j := range t.input[i] {
+			t.input[i][j] = rng.Float64() - 0.5
+			T++
+		}
+	}
+	for i := range t.hidden {
+		for j := range t.hidden[i] {
+			t.hidden[i][j] = rng.Float64() - 0.5
+			T++
+		}
+	}
 	for i := range t.linear {
-		for j := range t.linear[0] {
+		for j := range t.linear[i] {
 			t.linear[i][j] = rng.Float64() - 0.5
 			T++
 		}
@@ -378,34 +485,54 @@ func (t *transformer) rand(rng *rand.Rand) {
 
 func (t *transformer) dump(theta vector) {
 	T := 0
-	for i := range t.lnGamma1 {
-		theta[T] = t.lnGamma1[i]
+	for i := range t.gamma1 {
+		theta[T] = t.gamma1[i]
 		T++
 	}
-	for i := range t.lnBeta1 {
-		theta[T] = t.lnBeta1[i]
+	for i := range t.beta1 {
+		theta[T] = t.beta1[i]
+		T++
+	}
+	for i := range t.gamma2 {
+		theta[T] = t.gamma2[i]
+		T++
+	}
+	for i := range t.beta2 {
+		theta[T] = t.beta2[i]
 		T++
 	}
 	for i := range t.keys {
-		for j := range t.keys[0] {
+		for j := range t.keys[i] {
 			theta[T] = t.keys[i][j]
 			T++
 		}
 	}
 	for i := range t.queries {
-		for j := range t.queries[0] {
+		for j := range t.queries[i] {
 			theta[T] = t.queries[i][j]
 			T++
 		}
 	}
 	for i := range t.values {
-		for j := range t.values[0] {
+		for j := range t.values[i] {
 			theta[T] = t.values[i][j]
 			T++
 		}
 	}
+	for i := range t.input {
+		for j := range t.input[i] {
+			theta[T] = t.input[i][j]
+			T++
+		}
+	}
+	for i := range t.hidden {
+		for j := range t.hidden[i] {
+			theta[T] = t.hidden[i][j]
+			T++
+		}
+	}
 	for i := range t.linear {
-		for j := range t.linear[0] {
+		for j := range t.linear[i] {
 			theta[T] = t.linear[i][j]
 			T++
 		}
@@ -453,6 +580,7 @@ func trainModel(context int, data []rune, parallelism int, seed int64, iters int
 		t.voc = vocab
 		t.pos = positions
 		t.tok = tokens
+		t.activation = ReLU
 		rngs[i] = rand.New(rand.NewSource(seed + 1000*int64(i)))
 		thetas[i] = make(vector, t.size())
 		t.rand(rngs[i])

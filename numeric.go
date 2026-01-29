@@ -84,6 +84,20 @@ func addMatM(c, a, b matrix) {
 	}
 }
 
+func mapMat(c, a matrix, f func(float64) float64) {
+	if len(a) != len(c) || len(a[0]) != len(c[0]) {
+		log.Panicf("mapMat: bad dimensions, A: %dx%d, C: %dx%d\n", len(a), len(a[0]), len(c), len(c[0]))
+	}
+	if f == nil {
+		log.Panic("mapMat: nil f")
+	}
+	for i := range len(a) {
+		for j := range len(a[0]) {
+			c[i][j] = f(a[i][j])
+		}
+	}
+}
+
 func printMat(a matrix) {
 	for _, row := range a {
 		fmt.Printf("[")
@@ -135,7 +149,7 @@ func softmax(s, a matrix) {
 	}
 	mulMatK(s, 0)
 	for i := range a {
-		triangle := i + 1 // len(a[0]) - i
+		triangle := i + 1
 		rowMax, _ := rowMax(a[i][:triangle])
 		if rowMax == 0 {
 			continue
@@ -177,6 +191,10 @@ func layerNorm(lnXs, xs matrix, gamma, beta vector) {
 			lnXs[i][j] += beta[j]
 		}
 	}
+}
+
+func ReLU(x float64) float64 {
+	return max(0, x)
 }
 
 func rademacher(v vector, rng *rand.Rand) vector {

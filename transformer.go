@@ -189,13 +189,13 @@ func (t *transformer) apply(theta vector) {
 	apv(t.beta1)
 	apv(t.gamma2)
 	apv(t.beta2)
-	apv(t.bias)
 	apm(t.keys)
 	apm(t.queries)
 	apm(t.values)
 	apm(t.input)
 	apm(t.hidden)
 	apm(t.linear)
+	apv(t.bias)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}
@@ -543,13 +543,13 @@ func (t *transformer) dump(theta vector) {
 	apv(t.beta1)
 	apv(t.gamma2)
 	apv(t.beta2)
-	apv(t.bias)
 	apm(t.keys)
 	apm(t.queries)
 	apm(t.values)
 	apm(t.input)
 	apm(t.hidden)
 	apm(t.linear)
+	apv(t.bias)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}

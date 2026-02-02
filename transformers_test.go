@@ -12,6 +12,7 @@ func TestAbcdefgh(te *testing.T) {
 	t.dump(theta)
 	loss := t.eval(theta)
 	fmt.Printf("%5.80f\n", loss)
+	// 0.1262216915046103782316322394763119518756866455078125
 	if loss != 0.0193861323781211285222081386336867581121623516082763671875 {
 		te.Fatal("Loss has changed")
 	}

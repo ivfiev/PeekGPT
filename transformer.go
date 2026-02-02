@@ -445,7 +445,6 @@ func (t *transformer) printAttention() {
 }
 
 func (t *transformer) printHeatmap(lastIx, rmix int) {
-	// vector heatmap
 	lin := make(vector, t.dModel)
 	for i := range lin {
 		lin[i] = t.linear.At(i, rmix)
@@ -454,15 +453,14 @@ func (t *transformer) printHeatmap(lastIx, rmix int) {
 	minProd := math.Inf(1)
 	for i := range lin {
 		vals := vector{
-			maxProd, minProd,
 			t.R2.At(lastIx, i) * lin[i],
 			t.R1.At(lastIx, i) * lin[i],
 			t.xs.At(lastIx, i) * lin[i],
 			t.V.At(lastIx, i) * lin[i],
 			t.H.At(lastIx, i) * lin[i],
 		}
-		maxProd = slices.Max(vals)
-		minProd = slices.Min(vals)
+		maxProd = max(maxProd, slices.Max(vals))
+		minProd = min(minProd, slices.Min(vals))
 	}
 	printHeatmap := func(xs matrix) {
 		for i := range lin {

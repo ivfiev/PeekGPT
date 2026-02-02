@@ -5,121 +5,41 @@ import (
 	"log"
 	"math"
 	"math/rand"
+
+	"gonum.org/v1/gonum/mat"
 )
 
 type (
-	vector []float64
-	matrix [][]float64
+	vector = []float64
+	matrix = *mat.Dense
 )
 
 type objective interface {
 	eval(vector) float64
 }
 
-func makeMat(n, m int) matrix {
-	rows := make([][]float64, n)
-	for i := range n {
-		rows[i] = make([]float64, m)
-	}
-	return rows
-}
-
-func mulMat(c, a, b matrix) {
-	if len(a[0]) != len(b) || len(c) != len(a) || len(c[0]) != len(b[0]) {
-		log.Panicf("mulMat: bad matrix dimensions, A: %dx%d, B: %dx%d, C: %dx%d\n", len(a), len(a[0]), len(b), len(b[0]), len(c), len(c[0]))
-	}
-	for i := range a {
-		for j := range b[0] {
-			sum := 0.0
-			for k := range b {
-				sum += a[i][k] * b[k][j]
-			}
-			c[i][j] = sum
-		}
-	}
-}
-
-func mulMatT(c, a, b matrix) {
-	if len(a[0]) != len(b[0]) || len(c[0]) != len(b) || len(c) != len(a) {
-		log.Panicf("mulMatT: bad matrix dimensions, A: %dx%d, B: %dx%d, C: %dx%d\n", len(a), len(a[0]), len(b), len(b[0]), len(c), len(c[0]))
-	}
-	for i := range a {
-		for j := range b {
-			sum := 0.0
-			for k := range b[0] {
-				sum += a[i][k] * b[j][k]
-			}
-			c[i][j] = sum
-		}
-	}
-}
-
-func mulMatK(a matrix, k float64) {
-	for i := range a {
-		for j := range a[0] {
-			a[i][j] *= k
-		}
-	}
-}
-
-func addMatV(a matrix, v vector) {
-	if len(a[0]) != len(v) {
-		log.Panicf("addMatV: bad dimensions, %d + %d\n", len(a[0]), len(v))
-	}
-	for i := range len(a) {
-		for j := range len(v) {
-			a[i][j] += v[j]
-		}
-	}
-}
-
-func addMatM(c, a, b matrix) {
-	if len(a) != len(b) || len(a[0]) != len(b[0]) || len(c) != len(a) || len(c[0]) != len(a[0]) {
-		log.Panicf("addMatM: bad dimensions, A: %dx%d, B: %dx%d, C: %dx%d\n", len(a), len(a[0]), len(b), len(b[0]), len(c), len(c[0]))
-	}
-	for i := range len(a) {
-		for j := range len(a[0]) {
-			c[i][j] = a[i][j] + b[i][j]
-		}
-	}
-}
-
-func mapMat(c, a matrix, f func(float64) float64) {
-	if len(a) != len(c) || len(a[0]) != len(c[0]) {
-		log.Panicf("mapMat: bad dimensions, A: %dx%d, C: %dx%d\n", len(a), len(a[0]), len(c), len(c[0]))
-	}
-	if f == nil {
-		log.Panic("mapMat: nil f")
-	}
-	for i := range len(a) {
-		for j := range len(a[0]) {
-			c[i][j] = f(a[i][j])
-		}
-	}
-}
-
-func printMat(a matrix) {
-	for _, row := range a {
+func printMat(A matrix) {
+	r, c := A.Dims()
+	for i := range r {
 		fmt.Printf("[")
-		for _, Anm := range row {
-			fmt.Printf("%6.3f ", Anm)
+		for j := range c {
+			fmt.Printf("%6.3f ", A.At(i, j))
 		}
 		fmt.Printf("]\n")
 	}
 }
 
-func printVec(v vector) {
-	fmt.Printf("[")
-	for _, x := range v {
-		fmt.Printf("%6.3f ", x)
-	}
-	fmt.Printf("]\n")
+func printRow(A matrix, r int) {
+	data, _, c, s := unmat(A)
+	printVec(data[r*s : r*s+c])
 }
 
-func mulVec(v vector, k float64) {
-	for i := range len(v) {
-		v[i] *= k
+func printVec(v vector) {
+	fmt.Printf("[")
+	for i := range v {
+		fmt.Printf("%6.3f ", v[i])
 	}
+	fmt.Printf("]\n")
 }
 
 func addVec(v, u vector, k float64) {
@@ -131,64 +51,82 @@ func addVec(v, u vector, k float64) {
 	}
 }
 
-func rowMax(row vector) (float64, int) {
+func makeMat(rows, cols int) matrix {
+	return mat.NewDense(rows, cols, nil)
+}
+
+func rowMax(row []float64) (float64, int) {
 	rowMax := math.Inf(-1)
 	i := -1
-	for j := range row {
-		if row[j] > rowMax {
-			rowMax = row[j]
+	for j, v := range row {
+		if v > rowMax {
+			rowMax = v
 			i = j
 		}
 	}
 	return rowMax, i
 }
 
-func softmax(s, a matrix) {
-	if len(a) != len(a[0]) || len(s) != len(s[0]) {
-		log.Panicf("softmax: A & S must be square")
+func unmat(A matrix) ([]float64, int, int, int) {
+	raw := A.RawMatrix()
+	return raw.Data, raw.Rows, raw.Cols, raw.Stride
+}
+
+func softmax(S, A matrix) {
+	dataA, rA, cA, sA := unmat(A)
+	dataS, rS, cS, sS := unmat(S)
+	if rS != rA || cS != cA {
+		log.Panicf("Softmax: incompatible matrices, A: %dx%d, S: %dx%d\n", rA, cA, rS, cS)
 	}
-	mulMatK(s, 0)
-	for i := range a {
+	S.Zero()
+	for i := range rA {
 		triangle := i + 1
-		rowMax, _ := rowMax(a[i][:triangle])
+		rowA := dataA[i*sA : i*sA+triangle]
+		rowS := dataS[i*sS : i*sS+triangle]
+		rowMax, _ := rowMax(rowA)
 		if rowMax == 0 {
 			continue
 		}
 		var sum float64
 		for j := range triangle {
-			f := math.Exp(a[i][j] - rowMax)
-			s[i][j] = f
+			f := math.Exp(rowA[j] - rowMax)
+			rowS[j] = f
 			sum += f
 		}
 		for j := range triangle {
-			s[i][j] /= sum
+			rowS[j] /= sum
 		}
 	}
 }
 
-func layerNorm(ln, xs matrix, gamma, beta vector) {
-	if len(xs) != len(ln) || len(xs[0]) != len(ln[0]) || len(gamma) != len(xs[0]) || len(beta) != len(xs[0]) {
-		log.Fatalf("LayerNorm: incompatible dimensions, lnXs: %dx%d, xs: %dx%d, gamma: %d, beta: %d\n",
-			len(ln), len(ln[0]), len(xs), len(xs[0]), len(gamma), len(beta))
+func layerNorm(L, X matrix, gamma, beta vector) {
+	dataX, rX, cX, sX := unmat(X)
+	dataL, rL, cL, sL := unmat(L)
+	rows := rX
+	cols := cX
+	if rX != rL || cX != cL || cX != len(gamma) || cols != len(beta) {
+		log.Fatalf("LayerNorm: incompatible dimensions, L: %dx%d, X: %dx%d, gamma: %d, beta: %d\n",
+			rL, rL, rX, cX, len(gamma), len(beta))
 	}
-	for i := range xs {
+	for i := range rows {
 		u := 0.0
 		o2 := 0.0
-		for _, x := range xs[i] {
-			u += x
+		for j := range cols {
+			u += dataX[i*sX+j]
 		}
 		if u == 0 {
 			continue
 		}
-		u /= float64(len(xs[i]))
-		for _, x := range xs[i] {
+		u /= float64(cols)
+		for j := range cols {
+			x := dataX[i*sX+j]
 			o2 += (x - u) * (x - u)
 		}
-		o2 /= float64(len(xs[i]))
-		for j := range xs[i] {
-			ln[i][j] = (xs[i][j] - u) / math.Sqrt(o2+0.00001)
-			ln[i][j] *= gamma[j]
-			ln[i][j] += beta[j]
+		o2 /= float64(cols)
+		for j := range cols {
+			dataL[i*sL+j] = (dataX[i*sX+j] - u) / math.Sqrt(o2+0.00001)
+			dataL[i*sL+j] *= gamma[j]
+			dataL[i*sL+j] += beta[j]
 		}
 	}
 }

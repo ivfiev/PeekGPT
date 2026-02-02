@@ -125,40 +125,45 @@ func newT(
 
 func (t *transformer) run() {
 	layerNorm(t.xs1, t.xs, t.gamma1, t.beta1)
-	mulMatT(t.Q, t.xs1, t.queries)
-	mulMatT(t.K, t.xs1, t.keys)
-	mulMatT(t.QK, t.Q, t.K)
+	t.Q.Mul(t.xs1, t.queries.T())
+	t.K.Mul(t.xs1, t.keys.T())
+	t.QK.Mul(t.Q, t.K.T())
 	d := 1 / math.Sqrt(float64(t.dModel))
-	mulMatK(t.QK, d)
+	t.QK.Scale(d, t.QK)
 	softmax(t.S, t.QK)
-	mulMatT(t.V, t.S, t.values)
-	addMatM(t.R1, t.xs, t.V)
+	t.V.Mul(t.S, t.values.T())
+	t.R1.Add(t.xs, t.V)
 
 	layerNorm(t.xs2, t.R1, t.gamma2, t.beta2)
-	mulMatT(t.I, t.xs2, t.input)
-	mapMat(t.A, t.I, t.activation)
-	mulMatT(t.H, t.A, t.hidden)
-	mulMatK(t.H, 0.5*d) // handicapping MLP so that attention picks up the slack
-	addMatM(t.R2, t.R1, t.H)
+	t.I.Mul(t.xs2, t.input.T())
+	t.A.Apply(func(i, j int, v float64) float64 {
+		return t.activation(v)
+	}, t.I)
+	t.H.Mul(t.A, t.hidden.T())
+	t.H.Scale(0.5*d, t.H) // handicapping MLP so that attention picks up the slack
+	t.R2.Add(t.R1, t.H)
 
-	mulMat(t.L, t.R2, t.linear)
-	addMatV(t.L, t.bias)
+	t.L.Mul(t.R2, t.linear)
+	t.L.Apply(func(i, j int, v float64) float64 {
+		return v + t.bias[j]
+	}, t.L)
 }
 
 func (t *transformer) eval(theta vector) float64 {
 	t.apply(theta)
 	loss := 0.0
+	dataL, rL, cL, sL := unmat(t.L)
 	for w := range len(t.data) - t.context { // this assumes full-context training
 		t.loadXs(t.data[w : w+t.context])
 		t.loadYs(t.data[w+1 : w+t.context+1])
 		t.run()
-		for i := range len(t.L) {
-			rowMax, _ := rowMax(t.L[i])
+		for i := range rL {
+			rowMax, _ := rowMax(dataL[i*sL : i*sL+sL])
 			sum := 0.0
-			for j := range len(t.L[i]) {
-				sum += math.Exp(t.L[i][j] - rowMax)
+			for j := range cL {
+				sum += math.Exp(dataL[i*sL+j] - rowMax)
 			}
-			loss += -t.L[i][t.ys[i]] + rowMax + math.Log(sum)
+			loss += -dataL[i*sL+t.ys[i]] + rowMax + math.Log(sum)
 		}
 	}
 	loss /= float64(t.context * (len(t.data) - t.context))
@@ -167,62 +172,30 @@ func (t *transformer) eval(theta vector) float64 {
 
 func (t *transformer) apply(theta vector) {
 	T := 0
-	for i := range t.gamma1 {
-		t.gamma1[i] = theta[T]
-		T++
-	}
-	for i := range t.beta1 {
-		t.beta1[i] = theta[T]
-		T++
-	}
-	for i := range t.gamma2 {
-		t.gamma2[i] = theta[T]
-		T++
-	}
-	for i := range t.beta2 {
-		t.beta2[i] = theta[T]
-		T++
-	}
-	for i := range t.keys {
-		for j := range t.keys[i] {
-			t.keys[i][j] = theta[T]
+	apm := func(A matrix) {
+		dataA, _, _, _ := unmat(A)
+		for i := range dataA {
+			dataA[i] = theta[T]
 			T++
 		}
 	}
-	for i := range t.queries {
-		for j := range t.queries[i] {
-			t.queries[i][j] = theta[T]
+	apv := func(v vector) {
+		for i := range v {
+			v[i] = theta[T]
 			T++
 		}
 	}
-	for i := range t.values {
-		for j := range t.values[i] {
-			t.values[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.input {
-		for j := range t.input[i] {
-			t.input[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.hidden {
-		for j := range t.hidden[i] {
-			t.hidden[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.linear {
-		for j := range t.linear[i] {
-			t.linear[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.bias {
-		t.bias[i] = theta[T]
-		T++
-	}
+	apv(t.gamma1)
+	apv(t.beta1)
+	apv(t.gamma2)
+	apv(t.beta2)
+	apv(t.bias)
+	apm(t.keys)
+	apm(t.queries)
+	apm(t.values)
+	apm(t.input)
+	apm(t.hidden)
+	apm(t.linear)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}
@@ -230,25 +203,33 @@ func (t *transformer) apply(theta vector) {
 
 func (t *transformer) size() int {
 	return len(t.gamma1) + len(t.beta1) +
-		len(t.keys)*len(t.keys[0]) +
-		len(t.queries)*len(t.queries[0]) +
-		len(t.values)*len(t.values[0]) +
 		len(t.gamma2) + len(t.beta2) +
-		len(t.input)*len(t.input[0]) + len(t.hidden)*len(t.hidden[0]) +
-		len(t.linear)*len(t.linear[0]) + len(t.bias)
+		len(t.queries.RawMatrix().Data) +
+		len(t.keys.RawMatrix().Data) +
+		len(t.values.RawMatrix().Data) +
+		len(t.input.RawMatrix().Data) +
+		len(t.hidden.RawMatrix().Data) +
+		len(t.linear.RawMatrix().Data) +
+		len(t.bias)
 }
 
 func (t *transformer) loadXs(window []rune) {
 	if len(window) > t.context {
 		log.Fatal("too long xs")
 	}
+	xs, _, _, s := unmat(t.xs)
 	for i := range window {
 		tok, ok := t.tok[window[i]]
 		if !ok {
 			log.Fatalf("loadXs: token %c is invalid", window[i])
 		}
-		copy(t.xs[i], tok)
-		addVec(t.xs[i], t.pos[i], 1)
+		pos, ok := t.pos[i]
+		if !ok {
+			log.Fatalf("loadXs: pos %d is invalid", i)
+		}
+		for j := range tok {
+			xs[i*s+j] = tok[j] + pos[j]
+		}
 	}
 	t.prompt = window
 }
@@ -269,24 +250,26 @@ func (t *transformer) loadYs(window []rune) {
 func (t *transformer) predict(ctx []rune) (rune, float64) {
 	t.loadXs(ctx)
 	t.run()
+	data, _, cols, str := unmat(t.L)
 	tokIx := len(ctx) - 1
-	rm, i := rowMax(t.L[tokIx])
+	rm, i := rowMax(data[tokIx*str : tokIx*str+str])
 	sum := 0.0
-	for j := range t.L[tokIx] {
-		sum += math.Exp(t.L[tokIx][j] - rm)
+	for j := range cols {
+		sum += math.Exp(data[tokIx*str+j] - rm)
 	}
-	prob := math.Exp(t.L[tokIx][i]-rm) / sum
+	prob := math.Exp(data[tokIx*str+i]-rm) / sum
 	return t.vocab[i], prob
 }
 
 func (t *transformer) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
+	data, _, _, str := unmat(t.L)
 	for range n {
 		t.loadXs(ctx)
 		t.run()
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
-		i := softSample(t.L[tokIx])
+		i := softSample(data[tokIx*str : tokIx*str+str])
 		fmt.Printf("%c", t.vocab[i])
 		ctx = append(ctx, t.vocab[i])
 		ctx = ctx[max(0, len(ctx)-t.context):]
@@ -295,16 +278,16 @@ func (t *transformer) generate(ctx []rune, n int) {
 }
 
 func (t *transformer) peek(ctx []rune) {
-	mulMatK(t.xs, 0)
-	mulMatK(t.xs1, 0)
-	mulMatK(t.xs2, 0)
-	mulMatK(t.S, 0)
-	mulMatK(t.QK, 0)
-	mulMatK(t.K, 0)
-	mulMatK(t.Q, 0)
-	mulMatK(t.V, 0)
-	mulMatK(t.I, 0)
-	mulMatK(t.H, 0)
+	t.xs.Zero()
+	t.xs1.Zero()
+	t.xs2.Zero()
+	t.S.Zero()
+	t.QK.Zero()
+	t.K.Zero()
+	t.Q.Zero()
+	t.V.Zero()
+	t.I.Zero()
+	t.H.Zero()
 	t.loadXs(ctx)
 	t.run()
 	println()
@@ -363,54 +346,54 @@ func (t *transformer) peek(ctx []rune) {
 	fmt.Println("Detailed breakdown for the last token:")
 	lastIx := len(ctx) - 1
 	fmt.Println("Last token's embedding:")
-	printVec(t.xs[lastIx])
+	printRow(t.xs, lastIx)
 	println()
 	fmt.Println("After first LayerNorm:")
-	printVec(t.xs1[lastIx])
+	printRow(t.xs1, lastIx)
 	println()
 	fmt.Println("Token's Query:")
-	printVec(t.Q[lastIx])
+	printRow(t.Q, lastIx)
 	println()
 	fmt.Println("Available Keys:")
 	printMat(t.K)
 	println()
 	fmt.Println("Raw scores against Keys (QKT):")
-	printVec(t.QK[lastIx])
+	printRow(t.QK, lastIx)
 	println()
 	fmt.Println("Normalized Softmax scores:")
-	printVec(t.S[lastIx])
+	printRow(t.S, lastIx)
 	println()
 	fmt.Println("Dot product with Value rows:")
 	printMat(t.values)
 	println()
 	fmt.Println("To get the final Value:")
-	printVec(t.V[lastIx])
+	printRow(t.V, lastIx)
 	println()
 	fmt.Println("Residual stream:")
-	printVec(t.xs[lastIx])
+	printRow(t.xs, lastIx)
 	println("+")
-	printVec(t.V[lastIx])
+	printRow(t.V, lastIx)
 	println("=")
-	printVec(t.R1[lastIx])
+	printRow(t.R1, lastIx)
 	println()
 	fmt.Println("After second LayerNorm:")
-	printVec(t.xs2[lastIx])
+	printRow(t.xs2, lastIx)
 	println()
 	fmt.Println("Pass through Input layer:")
-	printVec(t.I[lastIx])
+	printRow(t.I, lastIx)
 	println()
 	fmt.Println("Activation:")
-	printVec(t.A[lastIx])
+	printRow(t.A, lastIx)
 	println()
 	fmt.Println("Pass through Hidden layer:")
-	printVec(t.H[lastIx])
+	printRow(t.H, lastIx)
 	println()
 	fmt.Println("Residual stream:")
-	printVec(t.R1[lastIx])
+	printRow(t.R1, lastIx)
 	println("+")
-	printVec(t.H[lastIx])
+	printRow(t.H, lastIx)
 	println("=")
-	printVec(t.R2[lastIx])
+	printRow(t.R2, lastIx)
 	println()
 	fmt.Println("Dot product with Linear layer rows:")
 	printMat(t.linear)
@@ -419,16 +402,19 @@ func (t *transformer) peek(ctx []rune) {
 	printVec(t.bias)
 	println()
 	fmt.Println("To get the final Logits:")
-	printVec(t.L[lastIx])
+	printRow(t.L, lastIx)
 	println()
 	fmt.Printf("Input: [%s]\n", string(ctx))
 	fmt.Println("Next token probabilities:")
-	rm, rmix := rowMax(t.L[lastIx])
+	dataL, _, cL, sL := unmat(t.L)
+	rm, rmix := rowMax(dataL[lastIx*sL : lastIx*sL+cL])
 	sum := 0.0
-	for _, x := range t.L[lastIx] {
+	for i := range cL {
+		x := dataL[lastIx*sL+i]
 		sum += math.Exp(x - rm)
 	}
-	for i, x := range t.L[lastIx] {
+	for i := range cL {
+		x := dataL[lastIx*sL+i]
 		fmt.Printf("[%c] -> %.6f\n", t.vocab[i], math.Exp(x-rm)/sum)
 	}
 	println()
@@ -446,7 +432,7 @@ func (t *transformer) printAttention() {
 		for j := range t.prompt {
 			fg, bg := 0, 0
 			if j <= i {
-				fg = int(255 * t.S[i][j])
+				fg = int(255 * t.S.At(i, j))
 			}
 			fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
 		}
@@ -460,20 +446,28 @@ func (t *transformer) printAttention() {
 
 func (t *transformer) printHeatmap(lastIx, rmix int) {
 	// vector heatmap
-	lin := make(vector, len(t.linear))
+	lin := make(vector, t.dModel)
 	for i := range lin {
-		lin[i] = t.linear[i][rmix]
+		lin[i] = t.linear.At(i, rmix)
 	}
 	maxProd := math.Inf(-1)
 	minProd := math.Inf(1)
 	for i := range lin {
-		maxProd = max(maxProd, t.R2[lastIx][i]*lin[i], t.R1[lastIx][i]*lin[i], t.xs[lastIx][i]*lin[i], t.V[lastIx][i]*lin[i], t.H[lastIx][i]*lin[i])
-		minProd = min(minProd, t.R2[lastIx][i]*lin[i], t.R1[lastIx][i]*lin[i], t.xs[lastIx][i]*lin[i], t.V[lastIx][i]*lin[i], t.H[lastIx][i]*lin[i])
+		vals := vector{
+			maxProd, minProd,
+			t.R2.At(lastIx, i) * lin[i],
+			t.R1.At(lastIx, i) * lin[i],
+			t.xs.At(lastIx, i) * lin[i],
+			t.V.At(lastIx, i) * lin[i],
+			t.H.At(lastIx, i) * lin[i],
+		}
+		maxProd = slices.Max(vals)
+		minProd = slices.Min(vals)
 	}
 	printHeatmap := func(xs matrix) {
 		for i := range lin {
 			red, blue, bg := 0, 0, 0
-			prod := xs[lastIx][i] * lin[i]
+			prod := xs.At(lastIx, i) * lin[i]
 			if prod > 0 {
 				red = int(prod / (maxProd - minProd) * 255)
 			} else {
@@ -516,42 +510,16 @@ func (t *transformer) rand(rng *rand.Rand) {
 		t.beta2[i] = 0
 		T++
 	}
-	for i := range t.keys {
-		for j := range t.keys[i] {
-			t.keys[i][j] = rng.Float64() - 0.5
-			T++
-		}
+	r := func(i, j int, v float64) float64 {
+		T++
+		return rng.Float64() - 0.5
 	}
-	for i := range t.queries {
-		for j := range t.queries[i] {
-			t.queries[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.values {
-		for j := range t.values[i] {
-			t.values[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.input {
-		for j := range t.input[i] {
-			t.input[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.hidden {
-		for j := range t.hidden[i] {
-			t.hidden[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.linear {
-		for j := range t.linear[i] {
-			t.linear[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
+	t.keys.Apply(r, t.keys)
+	t.queries.Apply(r, t.queries)
+	t.values.Apply(r, t.values)
+	t.input.Apply(r, t.input)
+	t.hidden.Apply(r, t.hidden)
+	t.linear.Apply(r, t.linear)
 	for i := range t.bias {
 		t.bias[i] = rng.Float64() - 0.5
 		T++
@@ -560,62 +528,30 @@ func (t *transformer) rand(rng *rand.Rand) {
 
 func (t *transformer) dump(theta vector) {
 	T := 0
-	for i := range t.gamma1 {
-		theta[T] = t.gamma1[i]
-		T++
-	}
-	for i := range t.beta1 {
-		theta[T] = t.beta1[i]
-		T++
-	}
-	for i := range t.gamma2 {
-		theta[T] = t.gamma2[i]
-		T++
-	}
-	for i := range t.beta2 {
-		theta[T] = t.beta2[i]
-		T++
-	}
-	for i := range t.keys {
-		for j := range t.keys[i] {
-			theta[T] = t.keys[i][j]
+	apm := func(A matrix) {
+		dataA, _, _, _ := unmat(A)
+		for i := range dataA {
+			theta[T] = dataA[i]
 			T++
 		}
 	}
-	for i := range t.queries {
-		for j := range t.queries[i] {
-			theta[T] = t.queries[i][j]
+	apv := func(v vector) {
+		for i := range v {
+			theta[T] = v[i]
 			T++
 		}
 	}
-	for i := range t.values {
-		for j := range t.values[i] {
-			theta[T] = t.values[i][j]
-			T++
-		}
-	}
-	for i := range t.input {
-		for j := range t.input[i] {
-			theta[T] = t.input[i][j]
-			T++
-		}
-	}
-	for i := range t.hidden {
-		for j := range t.hidden[i] {
-			theta[T] = t.hidden[i][j]
-			T++
-		}
-	}
-	for i := range t.linear {
-		for j := range t.linear[i] {
-			theta[T] = t.linear[i][j]
-			T++
-		}
-	}
-	for i := range t.bias {
-		theta[T] = t.bias[i]
-		T++
-	}
+	apv(t.gamma1)
+	apv(t.beta1)
+	apv(t.gamma2)
+	apv(t.beta2)
+	apv(t.bias)
+	apm(t.keys)
+	apm(t.queries)
+	apm(t.values)
+	apm(t.input)
+	apm(t.hidden)
+	apm(t.linear)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}

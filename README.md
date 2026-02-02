@@ -1,5 +1,6 @@
 # tiny-transformers
 Minimal from-scratch implementation of a basic single-block transformer.
+
 Trains using SPSA locally, no external dependencies nor API calls.
 
 ## Usage
@@ -9,7 +10,7 @@ Configure an example (model learns a simple aa|bb|aa|bb|.... sequence in this ca
 	t := trainModel(ctx, []rune("aa|bb|aa|bb|aa|bb|"), 4, seed, 5000, 0.01, 0.0001)
 ```
 
-Run in the terminal:
+Run in the terminal and enjoy deciphering:
 
 ```
 $ go run .
@@ -282,3 +283,7 @@ Next token probabilities:
 [|] -> 0.000776
 [b] -> 0.999224
 ```
+
+### Graphical example of Attention matrix + vector heatmap
+
+<img width="320" height="325" alt="image" src="https://github.com/user-attachments/assets/171a2110-5dab-4f87-9a18-9262d2a3ce9a" />

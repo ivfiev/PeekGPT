@@ -166,10 +166,10 @@ func softmax(s, a matrix) {
 	}
 }
 
-func layerNorm(lnXs, xs matrix, gamma, beta vector) {
-	if len(xs) != len(lnXs) || len(xs[0]) != len(lnXs[0]) || len(gamma) != len(xs[0]) || len(beta) != len(xs[0]) {
+func layerNorm(ln, xs matrix, gamma, beta vector) {
+	if len(xs) != len(ln) || len(xs[0]) != len(ln[0]) || len(gamma) != len(xs[0]) || len(beta) != len(xs[0]) {
 		log.Fatalf("LayerNorm: incompatible dimensions, lnXs: %dx%d, xs: %dx%d, gamma: %d, beta: %d\n",
-			len(lnXs), len(lnXs[0]), len(xs), len(xs[0]), len(gamma), len(beta))
+			len(ln), len(ln[0]), len(xs), len(xs[0]), len(gamma), len(beta))
 	}
 	for i := range xs {
 		u := 0.0
@@ -186,9 +186,9 @@ func layerNorm(lnXs, xs matrix, gamma, beta vector) {
 		}
 		o2 /= float64(len(xs[i]))
 		for j := range xs[i] {
-			lnXs[i][j] = (xs[i][j] - u) / math.Sqrt(o2+0.00001)
-			lnXs[i][j] *= gamma[j]
-			lnXs[i][j] += beta[j]
+			ln[i][j] = (xs[i][j] - u) / math.Sqrt(o2+0.00001)
+			ln[i][j] *= gamma[j]
+			ln[i][j] += beta[j]
 		}
 	}
 }

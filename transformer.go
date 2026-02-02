@@ -61,26 +61,35 @@ type transformer struct {
 	L matrix
 
 	// training/predictions
-	voc  []rune
-	data []rune
-	tok  map[rune]vector
-	pos  map[int]vector
-	xs   matrix // inputs
-	ys   []int
+	vocab  []rune
+	data   []rune
+	tok    map[rune]vector
+	pos    map[int]vector
+	xs     matrix // inputs
+	ys     []int
+	prompt []rune
 }
 
-func newT(ctx, dModel, dVocab int) *transformer {
+func newT(
+	ctx, dModel, dVocab int,
+	data, vocab []rune,
+	tok map[rune]vector, pos map[int]vector,
+	activation func(float64) float64,
+) *transformer {
 	t := transformer{
 		context: ctx,
 		dModel:  dModel,
 		dVocab:  dVocab,
+		data:    data,
+		vocab:   vocab,
+		tok:     tok,
+		pos:     pos,
 	}
-
 	t.xs = makeMat(t.context, t.dModel)
 
 	t.gamma1 = make(vector, dModel)
 	t.beta1 = make(vector, dModel)
-	t.xs1 = makeMat(t.context, t.dModel)
+	t.xs1 = makeMat(ctx, dModel)
 
 	t.queries = makeMat(ctx, dModel)
 	t.keys = makeMat(ctx, dModel)
@@ -90,8 +99,9 @@ func newT(ctx, dModel, dVocab int) *transformer {
 	t.beta2 = make(vector, dModel)
 	t.xs2 = makeMat(t.context, t.dModel)
 
-	t.input = makeMat(2*dModel, dModel)
-	t.hidden = makeMat(dModel, 2*dModel)
+	t.input = makeMat(dModel, dModel)
+	t.activation = activation
+	t.hidden = makeMat(dModel, dModel)
 
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
@@ -104,8 +114,8 @@ func newT(ctx, dModel, dVocab int) *transformer {
 	t.L = makeMat(ctx, dVocab)
 	t.R1 = makeMat(t.context, t.dModel)
 	t.R2 = makeMat(t.context, t.dModel)
-	t.I = makeMat(ctx, 2*dModel)
-	t.A = makeMat(ctx, 2*dModel)
+	t.I = makeMat(ctx, dModel)
+	t.A = makeMat(ctx, dModel)
 	t.H = makeMat(ctx, dModel)
 
 	t.ys = make([]int, t.context)
@@ -128,6 +138,7 @@ func (t *transformer) run() {
 	mulMatT(t.I, t.xs2, t.input)
 	mapMat(t.A, t.I, t.activation)
 	mulMatT(t.H, t.A, t.hidden)
+	mulMatK(t.H, 0.5*d) // handicapping MLP so that attention picks up the slack
 	addMatM(t.R2, t.R1, t.H)
 
 	mulMat(t.L, t.R2, t.linear)
@@ -239,6 +250,7 @@ func (t *transformer) loadXs(window []rune) {
 		copy(t.xs[i], tok)
 		addVec(t.xs[i], t.pos[i], 1)
 	}
+	t.prompt = window
 }
 
 func (t *transformer) loadYs(window []rune) {
@@ -246,7 +258,7 @@ func (t *transformer) loadYs(window []rune) {
 		log.Fatal("too long ys")
 	}
 	for i := range window {
-		ix := slices.Index(t.voc, window[i])
+		ix := slices.Index(t.vocab, window[i])
 		if ix == -1 {
 			log.Fatalf("loadYs: token %c is invalid", window[i])
 		}
@@ -254,10 +266,9 @@ func (t *transformer) loadYs(window []rune) {
 	}
 }
 
-func (t *transformer) predict(ctx []rune) {
+func (t *transformer) predict(ctx []rune) (rune, float64) {
 	t.loadXs(ctx)
 	t.run()
-	printMat(t.L)
 	tokIx := len(ctx) - 1
 	rm, i := rowMax(t.L[tokIx])
 	sum := 0.0
@@ -265,7 +276,7 @@ func (t *transformer) predict(ctx []rune) {
 		sum += math.Exp(t.L[tokIx][j] - rm)
 	}
 	prob := math.Exp(t.L[tokIx][i]-rm) / sum
-	fmt.Printf("%s -> %c (%.3f)\n", string(ctx), t.voc[i], prob)
+	return t.vocab[i], prob
 }
 
 func (t *transformer) generate(ctx []rune, n int) {
@@ -276,8 +287,8 @@ func (t *transformer) generate(ctx []rune, n int) {
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
 		i := softSample(t.L[tokIx])
-		fmt.Printf("%c", t.voc[i])
-		ctx = append(ctx, t.voc[i])
+		fmt.Printf("%c", t.vocab[i])
+		ctx = append(ctx, t.vocab[i])
 		ctx = ctx[max(0, len(ctx)-t.context):]
 	}
 	println()
@@ -412,15 +423,79 @@ func (t *transformer) peek(ctx []rune) {
 	println()
 	fmt.Printf("Input: [%s]\n", string(ctx))
 	fmt.Println("Next token probabilities:")
-	rm, _ := rowMax(t.L[lastIx])
+	rm, rmix := rowMax(t.L[lastIx])
 	sum := 0.0
 	for _, x := range t.L[lastIx] {
 		sum += math.Exp(x - rm)
 	}
 	for i, x := range t.L[lastIx] {
-		fmt.Printf("[%c] -> %.6f\n", t.voc[i], math.Exp(x-rm)/sum)
+		fmt.Printf("[%c] -> %.6f\n", t.vocab[i], math.Exp(x-rm)/sum)
 	}
 	println()
+	println()
+	t.printAttention()
+	println()
+	println()
+	t.printHeatmap(lastIx, rmix)
+	println()
+}
+
+func (t *transformer) printAttention() {
+	for i := range t.prompt {
+		fmt.Printf("%c ", t.prompt[i])
+		for j := range t.prompt {
+			fg, bg := 0, 0
+			if j <= i {
+				fg = int(255 * t.S[i][j])
+			}
+			fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
+		}
+		println()
+	}
+	fmt.Printf("   ")
+	for _, c := range t.prompt {
+		fmt.Printf("%c  ", c)
+	}
+}
+
+func (t *transformer) printHeatmap(lastIx, rmix int) {
+	// vector heatmap
+	lin := make(vector, len(t.linear))
+	for i := range lin {
+		lin[i] = t.linear[i][rmix]
+	}
+	maxProd := math.Inf(-1)
+	minProd := math.Inf(1)
+	for i := range lin {
+		maxProd = max(maxProd, t.R2[lastIx][i]*lin[i], t.R1[lastIx][i]*lin[i], t.xs[lastIx][i]*lin[i], t.V[lastIx][i]*lin[i], t.H[lastIx][i]*lin[i])
+		minProd = min(minProd, t.R2[lastIx][i]*lin[i], t.R1[lastIx][i]*lin[i], t.xs[lastIx][i]*lin[i], t.V[lastIx][i]*lin[i], t.H[lastIx][i]*lin[i])
+	}
+	printHeatmap := func(xs matrix) {
+		for i := range lin {
+			red, blue, bg := 0, 0, 0
+			prod := xs[lastIx][i] * lin[i]
+			if prod > 0 {
+				red = int(prod / (maxProd - minProd) * 255)
+			} else {
+				blue = int(-prod / (maxProd - minProd) * 255)
+			}
+			fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm██\x1b[0m", red, 0, blue, bg, bg, bg)
+		}
+	}
+	printHeatmap(t.xs)
+	println("  Original")
+	println()
+	printHeatmap(t.V)
+	println("  Attention Δ")
+	println()
+	printHeatmap(t.R1)
+	println("  Post-attention")
+	println()
+	printHeatmap(t.H)
+	println("  MLP Δ")
+	println()
+	printHeatmap(t.R2)
+	println("  Post-MLP")
 }
 
 func (t *transformer) rand(rng *rand.Rand) {
@@ -575,12 +650,7 @@ func trainModel(context int, data []rune, parallelism int, seed int64, iters int
 	thetas := make([]vector, parallelism)
 	rngs := make([]*rand.Rand, parallelism)
 	for i := range parallelism {
-		t := newT(context, len(vocab)+context, len(vocab))
-		t.data = data
-		t.voc = vocab
-		t.pos = positions
-		t.tok = tokens
-		t.activation = ReLU
+		t := newT(context, len(vocab)+context, len(vocab), data, vocab, tokens, positions, ReLU)
 		rngs[i] = rand.New(rand.NewSource(seed + 1000*int64(i)))
 		thetas[i] = make(vector, t.size())
 		t.rand(rngs[i])

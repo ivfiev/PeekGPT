@@ -140,7 +140,7 @@ func (t *transformer) run() {
 		return t.activation(v)
 	}, t.I)
 	t.H.Mul(t.A, t.hidden.T())
-	t.H.Scale(0.5*d, t.H) // handicapping MLP so that attention picks up the slack
+	t.H.Scale(d, t.H) // handicapping MLP so that attention picks up the slack
 	t.R2.Add(t.R1, t.H)
 
 	t.L.Mul(t.R2, t.linear)

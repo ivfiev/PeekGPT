@@ -7,7 +7,7 @@ import (
 
 func TestAbcdefgh(te *testing.T) {
 	var seed int64 = 7357
-	t := trainModel(10, []rune("abcdefgghabcdefggh"), 4, seed, 5000, 0.0075, 0.0001)
+	t := trainModel(10, []rune("abcdefgghabcdefggh"), 4, seed, 200000, 0.0075, 0.0001)
 	theta := make(vector, t.size())
 	t.dump(theta)
 	loss := t.eval(theta)

@@ -32,6 +32,7 @@ type transformer struct {
 	input      matrix
 	activation func(float64) float64
 	hidden     matrix
+	handicap   float64
 
 	// to-logit map parameters
 	linear matrix
@@ -68,6 +69,8 @@ type transformer struct {
 	xs     matrix // inputs
 	ys     []int
 	prompt []rune
+
+	heatmap matrix
 }
 
 func newT(
@@ -102,6 +105,7 @@ func newT(
 	t.input = makeMat(dModel, dModel)
 	t.activation = activation
 	t.hidden = makeMat(dModel, dModel)
+	t.handicap = 1.0
 
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
@@ -138,7 +142,7 @@ func (t *transformer) run() {
 	mulMatT(t.I, t.xs2, t.input)
 	mapMat(t.A, t.I, t.activation)
 	mulMatT(t.H, t.A, t.hidden)
-	mulMatK(t.H, 0.5*d) // handicapping MLP so that attention picks up the slack
+	mulMatK(t.H, t.handicap) // so that attention works harder
 	addMatM(t.R2, t.R1, t.H)
 
 	mulMat(t.L, t.R2, t.linear)
@@ -459,7 +463,7 @@ func (t *transformer) printAttention() {
 }
 
 func (t *transformer) printHeatmap(lastIx, rmix int) {
-	// vector heatmap
+	t.heatmap = nil
 	lin := make(vector, len(t.linear))
 	for i := range lin {
 		lin[i] = t.linear[i][rmix]
@@ -467,20 +471,31 @@ func (t *transformer) printHeatmap(lastIx, rmix int) {
 	maxProd := math.Inf(-1)
 	minProd := math.Inf(1)
 	for i := range lin {
-		maxProd = max(maxProd, t.R2[lastIx][i]*lin[i], t.R1[lastIx][i]*lin[i], t.xs[lastIx][i]*lin[i], t.V[lastIx][i]*lin[i], t.H[lastIx][i]*lin[i])
-		minProd = min(minProd, t.R2[lastIx][i]*lin[i], t.R1[lastIx][i]*lin[i], t.xs[lastIx][i]*lin[i], t.V[lastIx][i]*lin[i], t.H[lastIx][i]*lin[i])
+		prods := vector{
+			t.R2[lastIx][i] * lin[i],
+			t.R1[lastIx][i] * lin[i],
+			t.xs[lastIx][i] * lin[i],
+			t.V[lastIx][i] * lin[i],
+			t.H[lastIx][i] * lin[i],
+		}
+		maxProd = max(maxProd, slices.Max(prods))
+		minProd = min(minProd, slices.Min(prods))
 	}
 	printHeatmap := func(xs matrix) {
+		rgb := make(vector, t.dModel) // len(lin)
 		for i := range lin {
 			red, blue, bg := 0, 0, 0
 			prod := xs[lastIx][i] * lin[i]
 			if prod > 0 {
-				red = int(prod / (maxProd - minProd) * 255)
+				rgb[i] = prod / (maxProd - minProd)
+				red = int(rgb[i] * 255)
 			} else {
-				blue = int(-prod / (maxProd - minProd) * 255)
+				rgb[i] = prod / (maxProd - minProd)
+				blue = int(-rgb[i] * 255)
 			}
 			fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm██\x1b[0m", red, 0, blue, bg, bg, bg)
 		}
+		t.heatmap = append(t.heatmap, rgb)
 	}
 	printHeatmap(t.xs)
 	println("  Original")
@@ -651,6 +666,7 @@ func trainModel(context int, data []rune, parallelism int, seed int64, iters int
 	rngs := make([]*rand.Rand, parallelism)
 	for i := range parallelism {
 		t := newT(context, len(vocab)+context, len(vocab), data, vocab, tokens, positions, ReLU)
+		t.handicap = 1 / math.Sqrt(float64(t.dModel))
 		rngs[i] = rand.New(rand.NewSource(seed + 1000*int64(i)))
 		thetas[i] = make(vector, t.size())
 		t.rand(rngs[i])

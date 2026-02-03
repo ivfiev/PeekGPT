@@ -16,10 +16,10 @@ type objective interface {
 	eval(vector) float64
 }
 
-func makeMat(n, m int) matrix {
-	rows := make([][]float64, n)
-	for i := range n {
-		rows[i] = make([]float64, m)
+func makeMat(r, c int) matrix {
+	rows := make([][]float64, r)
+	for i := range r {
+		rows[i] = make([]float64, c)
 	}
 	return rows
 }
@@ -184,9 +184,9 @@ func layerNorm(ln, xs matrix, gamma, beta vector) {
 		for _, x := range xs[i] {
 			o2 += (x - u) * (x - u)
 		}
-		o2 /= float64(len(xs[i]))
+		o2 = math.Sqrt(o2/float64(len(xs[i])) + 0.00001)
 		for j := range xs[i] {
-			ln[i][j] = (xs[i][j] - u) / math.Sqrt(o2+0.00001)
+			ln[i][j] = (xs[i][j] - u) / o2
 			ln[i][j] *= gamma[j]
 			ln[i][j] += beta[j]
 		}

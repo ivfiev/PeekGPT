@@ -22,4 +22,5 @@ func main() {
 		}
 		t.peek([]rune(strings.TrimRight(input, "\n\r")))
 	}
+	// microbatch, parallel FF, avx
 }

@@ -13,6 +13,7 @@ type (
 )
 
 type objective interface {
+	clone() objective
 	eval(vector) float64
 }
 

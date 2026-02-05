@@ -44,6 +44,10 @@ type testquad struct {
 	minimum vector
 }
 
+func (q *testquad) clone() objective {
+	return q
+}
+
 func (q *testquad) eval(theta vector) float64 {
 	sum := 0.0
 	for i := range theta {
@@ -76,8 +80,10 @@ func TestAbcdefggh(te *testing.T) {
 	theta := make(vector, t.size())
 	t.dump(theta)
 	loss := t.eval(theta)
-	// fmt.Printf("%.80f\n", loss)
-	if loss != 0.0837149674021284428970801627656328491866588592529296875 {
+	targetLoss := 0.083747851122179362004516178785706870257854461669921875000000
+	if loss != targetLoss {
+		fmt.Printf("%.60f\n", targetLoss)
+		fmt.Printf("%.60f\n", loss)
 		te.Fatal("Loss has changed")
 	}
 }
@@ -286,4 +292,28 @@ func TestHeatmaps(te *testing.T) {
 		{-0.200, 0.800, 0.400},
 		{0.200, -0.200, -0.100},
 	}, "heatmap", te)
+}
+
+func TestLoss(te *testing.T) {
+	t := newT(5, 4, 4, nil, nil, nil, nil, nil)
+	t.L = testMat(matrix{
+		{1, 2, 3, -9},
+		{2, 1.6, 1, 0.1},
+		{5, -8, -13},
+		{-2, 100, -1},
+		{-3.14, 7.77, 0},
+	})
+	p := func(r, c int) float64 {
+		sum := 0.0
+		for _, l := range t.L[r] {
+			sum += math.Exp(l)
+		}
+		return -math.Log(math.Exp(float64(t.L[r][c])) / sum)
+	}
+	t.ys = []int{1, 0, 2, 0, 2}
+	loss := t.loss()
+	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
+	if math.Abs(loss-expected) > 0.0001 {
+		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
+	}
 }

@@ -152,21 +152,34 @@ func (t *transformer) run() {
 func (t *transformer) eval(theta vector) float64 {
 	t.apply(theta)
 	loss := 0.0
-	for w := range len(t.data) - t.context { // this assumes full-context training
+	windows := len(t.data) - t.context
+	for w := range windows { // this assumes full-context training
 		t.loadXs(t.data[w : w+t.context])
 		t.loadYs(t.data[w+1 : w+t.context+1])
 		t.run()
-		for i := range len(t.L) {
-			rowMax, _ := rowMax(t.L[i])
-			sum := 0.0
-			for j := range len(t.L[i]) {
-				sum += math.Exp(t.L[i][j] - rowMax)
-			}
-			loss += -t.L[i][t.ys[i]] + rowMax + math.Log(sum)
-		}
+		loss += t.loss()
 	}
-	loss /= float64(t.context * (len(t.data) - t.context))
+	loss /= float64(windows)
 	return loss
+}
+
+func (t *transformer) loss() float64 {
+	loss := 0.0
+	for i := range len(t.L) {
+		rowMax, _ := rowMax(t.L[i])
+		sum := 0.0
+		for j := range len(t.L[i]) {
+			sum += math.Exp(t.L[i][j] - rowMax)
+		}
+		loss += -t.L[i][t.ys[i]] + rowMax + math.Log(sum)
+	}
+	return loss / float64(t.context)
+}
+
+func (t *transformer) clone() objective {
+	clone := newT(t.context, t.dModel, t.dVocab, t.data, t.vocab, t.tok, t.pos, t.activation)
+	clone.handicap = t.handicap
+	return clone
 }
 
 func (t *transformer) size() int {

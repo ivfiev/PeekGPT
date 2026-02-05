@@ -233,16 +233,16 @@ func softSample(logits vector) int {
 }
 
 func spsa(obj objective, theta vector, iters int, lr, eps float64, rng *rand.Rand) {
-	binary := make(vector, len(theta))
+	ones := make(vector, len(theta))
 	delta := make(vector, len(theta))
 	for range iters {
 		copy(delta, theta) // noisy!
-		rademacher(binary, rng)
-		addVec(delta, binary, eps)
+		rademacher(ones, rng)
+		addVec(delta, ones, eps)
 		plus := obj.eval(delta)
-		addVec(delta, binary, -2*eps)
+		addVec(delta, ones, -2*eps)
 		minus := obj.eval(delta)
 		d := (plus - minus) / (2 * eps)
-		addVec(theta, binary, -d*lr)
+		addVec(theta, ones, -d*lr)
 	}
 }

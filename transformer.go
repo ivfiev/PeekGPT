@@ -169,69 +169,6 @@ func (t *transformer) eval(theta vector) float64 {
 	return loss
 }
 
-func (t *transformer) apply(theta vector) {
-	T := 0
-	for i := range t.gamma1 {
-		t.gamma1[i] = theta[T]
-		T++
-	}
-	for i := range t.beta1 {
-		t.beta1[i] = theta[T]
-		T++
-	}
-	for i := range t.gamma2 {
-		t.gamma2[i] = theta[T]
-		T++
-	}
-	for i := range t.beta2 {
-		t.beta2[i] = theta[T]
-		T++
-	}
-	for i := range t.keys {
-		for j := range t.keys[i] {
-			t.keys[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.queries {
-		for j := range t.queries[i] {
-			t.queries[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.values {
-		for j := range t.values[i] {
-			t.values[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.input {
-		for j := range t.input[i] {
-			t.input[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.hidden {
-		for j := range t.hidden[i] {
-			t.hidden[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.linear {
-		for j := range t.linear[i] {
-			t.linear[i][j] = theta[T]
-			T++
-		}
-	}
-	for i := range t.bias {
-		t.bias[i] = theta[T]
-		T++
-	}
-	if T != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
-	}
-}
-
 func (t *transformer) size() int {
 	return len(t.gamma1) + len(t.beta1) +
 		len(t.keys)*len(t.keys[0]) +
@@ -531,106 +468,84 @@ func (t *transformer) rand(rng *rand.Rand) {
 		t.beta2[i] = 0
 		T++
 	}
-	for i := range t.keys {
-		for j := range t.keys[i] {
-			t.keys[i][j] = rng.Float64() - 0.5
-			T++
+	mat := func(m matrix) {
+		for i := range m {
+			for j := range m[i] {
+				m[i][j] = rng.Float64() - 0.5
+			}
 		}
 	}
-	for i := range t.queries {
-		for j := range t.queries[i] {
-			t.queries[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.values {
-		for j := range t.values[i] {
-			t.values[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.input {
-		for j := range t.input[i] {
-			t.input[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.hidden {
-		for j := range t.hidden[i] {
-			t.hidden[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
-	for i := range t.linear {
-		for j := range t.linear[i] {
-			t.linear[i][j] = rng.Float64() - 0.5
-			T++
-		}
-	}
+	mat(t.keys)
+	mat(t.queries)
+	mat(t.values)
+	mat(t.input)
+	mat(t.hidden)
+	mat(t.linear)
 	for i := range t.bias {
 		t.bias[i] = rng.Float64() - 0.5
 		T++
 	}
 }
 
+func (t *transformer) apply(theta vector) {
+	T := 0
+	vec := func(v vector) {
+		for i := range v {
+			v[i] = theta[T]
+			T++
+		}
+	}
+	mat := func(m matrix) {
+		for i := range m {
+			for j := range m[i] {
+				m[i][j] = theta[T]
+				T++
+			}
+		}
+	}
+	vec(t.gamma1)
+	vec(t.beta1)
+	vec(t.gamma2)
+	vec(t.beta2)
+	mat(t.keys)
+	mat(t.queries)
+	mat(t.values)
+	mat(t.input)
+	mat(t.hidden)
+	mat(t.linear)
+	vec(t.bias)
+	if T != len(theta) {
+		log.Fatal("mismatch between len(theta) and model size")
+	}
+}
+
 func (t *transformer) dump(theta vector) {
 	T := 0
-	for i := range t.gamma1 {
-		theta[T] = t.gamma1[i]
-		T++
-	}
-	for i := range t.beta1 {
-		theta[T] = t.beta1[i]
-		T++
-	}
-	for i := range t.gamma2 {
-		theta[T] = t.gamma2[i]
-		T++
-	}
-	for i := range t.beta2 {
-		theta[T] = t.beta2[i]
-		T++
-	}
-	for i := range t.keys {
-		for j := range t.keys[i] {
-			theta[T] = t.keys[i][j]
+	vec := func(v vector) {
+		for i := range v {
+			theta[T] = v[i]
 			T++
 		}
 	}
-	for i := range t.queries {
-		for j := range t.queries[i] {
-			theta[T] = t.queries[i][j]
-			T++
+	mat := func(m matrix) {
+		for i := range m {
+			for j := range m[i] {
+				theta[T] = m[i][j]
+				T++
+			}
 		}
 	}
-	for i := range t.values {
-		for j := range t.values[i] {
-			theta[T] = t.values[i][j]
-			T++
-		}
-	}
-	for i := range t.input {
-		for j := range t.input[i] {
-			theta[T] = t.input[i][j]
-			T++
-		}
-	}
-	for i := range t.hidden {
-		for j := range t.hidden[i] {
-			theta[T] = t.hidden[i][j]
-			T++
-		}
-	}
-	for i := range t.linear {
-		for j := range t.linear[i] {
-			theta[T] = t.linear[i][j]
-			T++
-		}
-	}
-	for i := range t.bias {
-		theta[T] = t.bias[i]
-		T++
-	}
+	vec(t.gamma1)
+	vec(t.beta1)
+	vec(t.gamma2)
+	vec(t.beta2)
+	mat(t.keys)
+	mat(t.queries)
+	mat(t.values)
+	mat(t.input)
+	mat(t.hidden)
+	mat(t.linear)
+	vec(t.bias)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}

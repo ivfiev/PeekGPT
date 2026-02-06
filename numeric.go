@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sync"
 )
 
 type (
@@ -234,15 +235,26 @@ func softSample(logits vector) int {
 }
 
 func spsa(obj objective, theta vector, iters int, lr, eps float64, rng *rand.Rand) {
+	obj1 := obj.clone()
+	obj2 := obj.clone()
 	ones := make(vector, len(theta))
-	delta := make(vector, len(theta))
+	delta1 := make(vector, len(theta))
+	delta2 := make(vector, len(theta))
+	var wg sync.WaitGroup
 	for range iters {
-		copy(delta, theta) // noisy!
 		rademacher(ones, rng)
-		addVec(delta, ones, eps)
-		plus := obj.eval(delta)
-		addVec(delta, ones, -2*eps)
-		minus := obj.eval(delta)
+		plus, minus := 0.0, 0.0
+		wg.Go(func() {
+			copy(delta1, theta)
+			addVec(delta1, ones, eps)
+			plus = obj1.eval(delta1)
+		})
+		wg.Go(func() {
+			copy(delta2, theta)
+			addVec(delta2, ones, -eps)
+			minus = obj2.eval(delta2)
+		})
+		wg.Wait()
 		d := (plus - minus) / (2 * eps)
 		addVec(theta, ones, -d*lr)
 	}

@@ -6,8 +6,6 @@ import (
 	"math"
 	"math/rand"
 	"slices"
-	"sync"
-	"time"
 )
 
 type transformer struct {
@@ -32,7 +30,6 @@ type transformer struct {
 	input      matrix
 	activation func(float64) float64
 	hidden     matrix
-	handicap   float64
 
 	// to-logit map parameters
 	linear matrix
@@ -73,20 +70,11 @@ type transformer struct {
 	heatmap matrix
 }
 
-func newT(
-	ctx, dModel, dVocab int,
-	data, vocab []rune,
-	tok map[rune]vector, pos map[int]vector,
-	activation func(float64) float64,
-) *transformer {
+func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transformer {
 	t := transformer{
 		context: ctx,
 		dModel:  dModel,
 		dVocab:  dVocab,
-		data:    data,
-		vocab:   vocab,
-		tok:     tok,
-		pos:     pos,
 	}
 	t.xs = makeMat(t.context, t.dModel)
 
@@ -105,7 +93,6 @@ func newT(
 	t.input = makeMat(dModel, dModel)
 	t.activation = activation
 	t.hidden = makeMat(dModel, dModel)
-	t.handicap = 1.0
 
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
@@ -142,7 +129,6 @@ func (t *transformer) run() {
 	mulMatT(t.I, t.xs2, t.input)
 	mapMat(t.A, t.I, t.activation)
 	mulMatT(t.H, t.A, t.hidden)
-	mulMatK(t.H, t.handicap) // so that attention works harder
 	addMatM(t.R2, t.R1, t.H)
 
 	mulMat(t.L, t.R2, t.linear)
@@ -177,8 +163,11 @@ func (t *transformer) loss() float64 {
 }
 
 func (t *transformer) clone() objective {
-	clone := newT(t.context, t.dModel, t.dVocab, t.data, t.vocab, t.tok, t.pos, t.activation)
-	clone.handicap = t.handicap
+	clone := newT(t.dModel, t.dVocab, t.context, t.activation)
+	clone.data = t.data
+	clone.tok = t.tok
+	clone.pos = t.pos
+	clone.vocab = t.vocab
 	return clone
 }
 
@@ -209,12 +198,13 @@ func (t *transformer) loadXs(window []rune) {
 
 func (t *transformer) loadYs(window []rune) {
 	if len(window) > t.context {
-		log.Fatal("too long ys")
+		log.Panic("too long ys")
 	}
 	for i := range window {
 		ix := slices.Index(t.vocab, window[i])
 		if ix == -1 {
-			log.Fatalf("loadYs: token %c is invalid", window[i])
+			fmt.Printf("%v\n", t.vocab)
+			log.Panicf("loadYs: token %c is invalid", window[i])
 		}
 		t.ys[i] = ix
 	}
@@ -564,6 +554,29 @@ func (t *transformer) dump(theta vector) {
 	}
 }
 
+func (t *transformer) train(data []rune, seed int64, iters int, lr, eps float64) {
+	vocab := make([]rune, 0, len(data))
+	for _, tok := range data {
+		if slices.Index(vocab, tok) == -1 {
+			vocab = append(vocab, tok)
+		}
+	}
+	if len(vocab) != t.dVocab {
+		log.Panicf("incompatible vocab %d != %d\n", len(vocab), t.dVocab)
+	}
+	toks, pos := embeds(len(vocab), t.context, vocab)
+	t.data = data
+	t.tok = toks
+	t.pos = pos
+	t.vocab = vocab
+	theta := make(vector, t.size())
+	rng := rand.New(rand.NewSource(seed))
+	t.rand(rng)
+	t.dump(theta)
+	spsa(t, theta, iters, lr, eps, rng)
+	t.apply(theta)
+}
+
 func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
 	dModel := vocab + ctx
 	tokens := map[rune]vector{}
@@ -575,58 +588,4 @@ func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
 		pos[i] = onehot(dModel, vocab+i)
 	}
 	return tokens, pos
-}
-
-func trainModel(context int, data []rune, parallelism int, seed int64, iters int, lr, eps float64) *transformer {
-	now := time.Now()
-	vocab := make([]rune, 0, len(data))
-	vocmap := map[rune]struct{}{}
-	for _, tok := range data {
-		_, ok := vocmap[tok]
-		if !ok {
-			vocab = append(vocab, tok)
-			vocmap[tok] = struct{}{}
-		}
-	}
-	tokens, positions := embeds(len(vocab), context, vocab)
-	models := make([]*transformer, parallelism)
-	thetas := make([]vector, parallelism)
-	rngs := make([]*rand.Rand, parallelism)
-	for i := range parallelism {
-		t := newT(context, len(vocab)+context, len(vocab), data, vocab, tokens, positions, ReLU)
-		t.handicap = 1 / math.Sqrt(float64(t.dModel))
-		rngs[i] = rand.New(rand.NewSource(seed + 1000*int64(i)))
-		thetas[i] = make(vector, t.size())
-		t.rand(rngs[i])
-		t.dump(thetas[i])
-		models[i] = t
-	}
-	var wg sync.WaitGroup
-	for i := range parallelism {
-		wg.Go(func() {
-			spsa(models[i], thetas[i], iters, lr, eps, rngs[i])
-		})
-	}
-	wg.Wait()
-	winner := -1
-	minLoss := math.Inf(1)
-	for i := range parallelism {
-		loss := models[i].eval(thetas[i])
-		if loss < minLoss {
-			minLoss = loss
-			winner = i
-		}
-		fmt.Printf("Model %d has loss %.4f\n", i, loss)
-	}
-	fmt.Printf("The winner is %d! (%d parameters, d_model %d, ctx %d, vocab %d, %.4f loss)\n",
-		winner,
-		models[winner].size(),
-		models[winner].dModel,
-		models[winner].context,
-		models[winner].dVocab,
-		models[winner].eval(thetas[winner]))
-	fmt.Printf("Seed used %d\n\n", seed)
-	fmt.Printf("Trained in %.3f seconds\n", float64(time.Now().UnixMilli()-now.UnixMilli())/1000)
-	// models[winner].apply(thetas[winner])
-	return models[winner]
 }

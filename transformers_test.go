@@ -75,12 +75,14 @@ func TestSPSA(te *testing.T) {
 }
 
 func TestAbcdefggh(te *testing.T) {
-	var seed int64 = 7357
-	t := trainModel(8, []rune("aa|bb|aa|bb|aa|bb|"), 4, seed, 5000, 0.025, 0.0001)
+	var seed int64 = 7358
+	t := newT(11, 3, 8, ReLU)
+	t.train([]rune("aa|bb|aa|bb|aa|bb|"), seed, 5000, 0.01, 0.0001)
+	println(t.size())
 	theta := make(vector, t.size())
 	t.dump(theta)
 	loss := t.eval(theta)
-	targetLoss := 0.083747851122179362004516178785706870257854461669921875000000
+	targetLoss := 0.087450629752292063923135856384760700166225433349609375000000
 	if loss != targetLoss {
 		fmt.Printf("%.60f\n", targetLoss)
 		fmt.Printf("%.60f\n", loss)
@@ -123,8 +125,7 @@ func TestSoftmax(te *testing.T) {
 }
 
 func TestRun(te *testing.T) {
-	t := newT(4, 5, 3, nil, nil, nil, nil, ReLU)
-	t.handicap = 0.5
+	t := newT(5, 3, 4, ReLU)
 	t.xs = testMat(matrix{
 		{1, 0, 0, 1, 0},
 		{0, 1, 0, 1, 0},
@@ -232,27 +233,27 @@ func TestRun(te *testing.T) {
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "I", te)
 	assertEq(t.H, matrix{
-		{-0.883, 2.157, 1.399, 0.131, 0.605},
-		{-2.070, 4.139, 2.483, 0.000, 1.035},
-		{-2.879, 6.077, 5.011, 1.497, 7.484},
+		{-1.765, 4.315, 2.798, 0.261, 1.209},
+		{-4.139, 8.278, 4.967, 0.000, 2.070},
+		{-5.758, 12.154, 10.022, 2.994, 14.967},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "H", te)
 	assertEq(t.R2, matrix{
-		{2.117, 1.157, 0.399, 1.631, 1.105},
-		{-0.079, 4.154, 1.488, 1.488, 1.522},
-		{-2.883, 5.077, 5.214, 2.997, 8.983},
+		{1.235, 3.315, 1.798, 1.761, 1.709},
+		{-2.149, 8.293, 3.972, 1.488, 2.557},
+		{-5.762, 11.154, 10.224, 4.494, 16.467},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "R2", te)
 	assertEq(t.L, matrix{
-		{4.791, -2.970, 10.545},
-		{10.353, -0.691, 7.226},
-		{26.706, -16.640, 8.707},
+		{11.273, -2.840, 10.790},
+		{21.881, 0.178, 6.191},
+		{52.175, -28.60, 15.128},
 		{0.500, -0.500, 0.300},
 	}, "L", te)
 }
 
 func TestHeatmaps(te *testing.T) {
-	t := newT(3, 3, 3, nil, nil, nil, nil, ReLU)
+	t := newT(3, 3, 3, ReLU)
 	t.xs = testMat(matrix{
 		{0, 0, 0},
 		{0, 1, 0},
@@ -295,7 +296,7 @@ func TestHeatmaps(te *testing.T) {
 }
 
 func TestLoss(te *testing.T) {
-	t := newT(5, 4, 4, nil, nil, nil, nil, nil)
+	t := newT(4, 4, 5, nil)
 	t.L = testMat(matrix{
 		{1, 2, 3, -9},
 		{2, 1.6, 1, 0.1},
@@ -313,6 +314,7 @@ func TestLoss(te *testing.T) {
 	t.ys = []int{1, 0, 2, 0, 2}
 	loss := t.loss()
 	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
+	// fmt.Printf("losses debug: %f %f\n", loss, expected)
 	if math.Abs(loss-expected) > 0.0001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}

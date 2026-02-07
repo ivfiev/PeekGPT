@@ -59,14 +59,15 @@ type transformer struct {
 	L matrix
 
 	// training/predictions
-	vocab  []rune
-	data   []rune
-	tok    map[rune]vector
-	pos    map[int]vector
-	xs     matrix // inputs
-	ys     []int
-	prompt []rune
+	vocab []rune
+	tok   map[rune]vector
+	pos   map[int]vector
 
+	// prompts/inputs
+	prompt []rune
+	xs     matrix // inputs
+
+	// graphical output
 	heatmap matrix
 }
 
@@ -109,8 +110,6 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.A = makeMat(ctx, dModel)
 	t.H = makeMat(ctx, dModel)
 
-	t.ys = make([]int, t.context)
-
 	return &t
 }
 
@@ -135,21 +134,7 @@ func (t *transformer) run() {
 	addMatV(t.L, t.bias)
 }
 
-func (t *transformer) eval(theta vector) float64 {
-	t.apply(theta)
-	loss := 0.0
-	windows := len(t.data) - t.context
-	for w := range windows { // this assumes full-context training
-		t.loadXs(t.data[w : w+t.context])
-		t.loadYs(t.data[w+1 : w+t.context+1])
-		t.run()
-		loss += t.loss()
-	}
-	loss /= float64(windows)
-	return loss
-}
-
-func (t *transformer) loss() float64 {
+func (t *transformer) loss(ys []int) float64 {
 	loss := 0.0
 	for i := range len(t.L) {
 		rowMax, _ := rowMax(t.L[i])
@@ -157,14 +142,13 @@ func (t *transformer) loss() float64 {
 		for j := range len(t.L[i]) {
 			sum += math.Exp(t.L[i][j] - rowMax)
 		}
-		loss += -t.L[i][t.ys[i]] + rowMax + math.Log(sum)
+		loss += -t.L[i][ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(t.context)
 }
 
-func (t *transformer) clone() objective {
+func (t *transformer) clone() *transformer {
 	clone := newT(t.dModel, t.dVocab, t.context, t.activation)
-	clone.data = t.data
 	clone.tok = t.tok
 	clone.pos = t.pos
 	clone.vocab = t.vocab
@@ -181,33 +165,22 @@ func (t *transformer) size() int {
 		len(t.linear)*len(t.linear[0]) + len(t.bias)
 }
 
-func (t *transformer) loadXs(window []rune) {
-	if len(window) > t.context {
+func (t *transformer) loadXs(prompt []rune) {
+	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
-	for i := range window {
-		tok, ok := t.tok[window[i]]
+	for i := range prompt {
+		tok, ok := t.tok[prompt[i]]
 		if !ok {
-			log.Fatalf("loadXs: token %c is invalid", window[i])
+			log.Panicf("loadXs: token %c is invalid", prompt[i])
 		}
-		copy(t.xs[i], tok)
-		addVec(t.xs[i], t.pos[i], 1)
-	}
-	t.prompt = window
-}
-
-func (t *transformer) loadYs(window []rune) {
-	if len(window) > t.context {
-		log.Panic("too long ys")
-	}
-	for i := range window {
-		ix := slices.Index(t.vocab, window[i])
-		if ix == -1 {
-			fmt.Printf("%v\n", t.vocab)
-			log.Panicf("loadYs: token %c is invalid", window[i])
+		pos, ok := t.pos[i]
+		if !ok {
+			log.Panicf("loadXs: pos %d is invalid", i)
 		}
-		t.ys[i] = ix
+		addVec3(t.xs[i], tok, pos, 1)
 	}
+	t.prompt = prompt
 }
 
 func (t *transformer) predict(ctx []rune) (rune, float64) {
@@ -552,40 +525,4 @@ func (t *transformer) dump(theta vector) {
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}
-}
-
-func (t *transformer) train(data []rune, seed int64, iters int, lr, eps float64) {
-	vocab := make([]rune, 0, len(data))
-	for _, tok := range data {
-		if slices.Index(vocab, tok) == -1 {
-			vocab = append(vocab, tok)
-		}
-	}
-	if len(vocab) != t.dVocab {
-		log.Panicf("incompatible vocab %d != %d\n", len(vocab), t.dVocab)
-	}
-	toks, pos := embeds(len(vocab), t.context, vocab)
-	t.data = data
-	t.tok = toks
-	t.pos = pos
-	t.vocab = vocab
-	theta := make(vector, t.size())
-	rng := rand.New(rand.NewSource(seed))
-	t.rand(rng)
-	t.dump(theta)
-	spsa(t, theta, iters, lr, eps, rng)
-	t.apply(theta)
-}
-
-func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
-	dModel := vocab + ctx
-	tokens := map[rune]vector{}
-	pos := map[int]vector{}
-	for i := range vocab {
-		tokens[toks[i]] = onehot(dModel, i)
-	}
-	for i := range ctx {
-		pos[i] = onehot(dModel, vocab+i)
-	}
-	return tokens, pos
 }

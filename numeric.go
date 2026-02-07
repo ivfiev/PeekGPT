@@ -5,7 +5,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"sync"
 )
 
 type (
@@ -14,8 +13,7 @@ type (
 )
 
 type objective interface {
-	clone() objective
-	eval(vector) float64
+	eval2(vector, vector, int) (float64, float64)
 }
 
 func makeMat(r, c int) matrix {
@@ -124,12 +122,21 @@ func mulVec(v vector, k float64) {
 	}
 }
 
-func addVec(v, u vector, k float64) {
+func addVec2(v, u vector, k float64) {
 	if len(v) != len(u) {
 		log.Panicf("addVec: vectors of invalid lengths, %d & %d\n", len(v), len(u))
 	}
 	for i := range v {
 		v[i] += u[i] * k
+	}
+}
+
+func addVec3(w, v, u vector, k float64) {
+	if len(v) != len(u) || len(w) != len(u) {
+		log.Panicf("addVec: vectors of invalid lengths, %d = %d + %d\n", len(w), len(v), len(u))
+	}
+	for i := range v {
+		w[i] = v[i] + u[i]*k
 	}
 }
 
@@ -235,27 +242,15 @@ func softSample(logits vector) int {
 }
 
 func spsa(obj objective, theta vector, iters int, lr, eps float64, rng *rand.Rand) {
-	obj1 := obj.clone()
-	obj2 := obj.clone()
 	ones := make(vector, len(theta))
-	delta1 := make(vector, len(theta))
-	delta2 := make(vector, len(theta))
-	var wg sync.WaitGroup
-	for range iters {
+	dPlus := make(vector, len(theta))
+	dMinus := make(vector, len(theta))
+	for iter := range iters {
 		rademacher(ones, rng)
-		plus, minus := 0.0, 0.0
-		wg.Go(func() {
-			copy(delta1, theta)
-			addVec(delta1, ones, eps)
-			plus = obj1.eval(delta1)
-		})
-		wg.Go(func() {
-			copy(delta2, theta)
-			addVec(delta2, ones, -eps)
-			minus = obj2.eval(delta2)
-		})
-		wg.Wait()
+		addVec3(dPlus, theta, ones, eps)
+		addVec3(dMinus, theta, ones, -eps)
+		plus, minus := obj.eval2(dPlus, dMinus, iter)
 		d := (plus - minus) / (2 * eps)
-		addVec(theta, ones, -d*lr)
+		addVec2(theta, ones, -d*lr)
 	}
 }

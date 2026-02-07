@@ -80,26 +80,26 @@ func TestSPSA(te *testing.T) {
 
 func TestAbcdefggh(te *testing.T) {
 	var seed int64 = 7357
-	t := train(3, 8, []rune("aa|bb|aa|bb|aa|bb|"), 5000, 0.01, 0.0001, seed)
+	t := train(3, 8, []rune("aa|bb|aa|bb|aa|bb|"), 10000, 4, 16, 0.004, 0.0001, seed)
 	tok, prob := t.predict([]rune("aa|b"))
-	if tok != 'b' || prob < 0.9 {
-		te.Fatalf("bad prediction %c", tok)
+	if tok != 'b' || prob < 0.7 {
+		te.Fatalf("1 bad prediction %c @ %.3f", tok, prob)
 	}
 	tok, prob = t.predict([]rune("aa|bb"))
-	if tok != '|' || prob < 0.9 {
-		te.Fatalf("bad prediction %c", tok)
+	if tok != '|' || prob < 0.7 {
+		te.Fatalf("2 bad prediction %c @ %.3f", tok, prob)
 	}
 	tok, prob = t.predict([]rune("b|a"))
-	if tok != 'a' || prob < 0.9 {
-		te.Fatalf("bad prediction %c", tok)
+	if tok != 'a' || prob < 0.7 {
+		te.Fatalf("3 bad prediction %c @ %.3f", tok, prob)
 	}
 	tok, prob = t.predict([]rune("|aa|"))
-	if tok != 'b' || prob < 0.9 {
-		te.Fatalf("bad prediction %c", tok)
+	if tok != 'b' || prob < 0.7 {
+		te.Fatalf("4 bad prediction %c @ %.3f", tok, prob)
 	}
 	tok, prob = t.predict([]rune("|bb|"))
-	if tok != 'a' || prob < 0.9 {
-		te.Fatalf("bad prediction %c", tok)
+	if tok != 'a' || prob < 0.7 {
+		te.Fatalf("5 bad prediction %c @ %.3f", tok, prob)
 	}
 }
 

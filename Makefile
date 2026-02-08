@@ -7,3 +7,6 @@ netlib:
 
 run:
 	$(CGO_ENV) go run .
+
+test:
+	$(CGO_ENV) go test

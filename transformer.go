@@ -68,7 +68,7 @@ type transformer struct {
 	xs     matrix // inputs
 
 	// graphical output
-	heatmap matrix
+	heatmap []vector
 }
 
 func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transformer {
@@ -120,7 +120,7 @@ func (t *transformer) run() {
 	mulMatT(t.QK, t.Q, t.K)
 	d := 1 / math.Sqrt(float64(t.dModel))
 	mulMatK(t.QK, d)
-	softmax(t.S, t.QK)
+	softmaxT(t.S, t.QK)
 	mulMatT(t.V, t.S, t.values)
 	addMatM(t.R1, t.xs, t.V)
 
@@ -136,13 +136,14 @@ func (t *transformer) run() {
 
 func (t *transformer) loss(ys []int) float64 {
 	loss := 0.0
-	for i := range len(t.L) {
-		rowMax, _ := rowMax(t.L[i])
+	d, r, c, s := unmat(t.L)
+	for i := range r {
+		rowMax, _ := rowMax(d[i*s : i*s+c])
 		sum := 0.0
-		for j := range len(t.L[i]) {
-			sum += math.Exp(t.L[i][j] - rowMax)
+		for j := range c {
+			sum += math.Exp(d[i*s+j] - rowMax)
 		}
-		loss += -t.L[i][ys[i]] + rowMax + math.Log(sum)
+		loss += -d[i*s+ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(t.context)
 }
@@ -157,18 +158,21 @@ func (t *transformer) clone() *transformer {
 
 func (t *transformer) size() int {
 	return len(t.gamma1) + len(t.beta1) +
-		len(t.keys)*len(t.keys[0]) +
-		len(t.queries)*len(t.queries[0]) +
-		len(t.values)*len(t.values[0]) +
 		len(t.gamma2) + len(t.beta2) +
-		len(t.input)*len(t.input[0]) + len(t.hidden)*len(t.hidden[0]) +
-		len(t.linear)*len(t.linear[0]) + len(t.bias)
+		len(t.queries.RawMatrix().Data) +
+		len(t.keys.RawMatrix().Data) +
+		len(t.values.RawMatrix().Data) +
+		len(t.input.RawMatrix().Data) +
+		len(t.hidden.RawMatrix().Data) +
+		len(t.linear.RawMatrix().Data) +
+		len(t.bias)
 }
 
 func (t *transformer) loadXs(prompt []rune) {
 	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
+	d, _, _, s := unmat(t.xs)
 	for i := range prompt {
 		tok, ok := t.tok[prompt[i]]
 		if !ok {
@@ -178,7 +182,9 @@ func (t *transformer) loadXs(prompt []rune) {
 		if !ok {
 			log.Panicf("loadXs: pos %d is invalid", i)
 		}
-		addVec3(t.xs[i], tok, pos, 1)
+		for j := range tok {
+			d[i*s+j] = tok[j] + pos[j]
+		}
 	}
 	t.prompt = prompt
 }
@@ -186,24 +192,26 @@ func (t *transformer) loadXs(prompt []rune) {
 func (t *transformer) predict(ctx []rune) (rune, float64) {
 	t.loadXs(ctx)
 	t.run()
+	d, _, c, s := unmat(t.L)
 	tokIx := len(ctx) - 1
-	rm, i := rowMax(t.L[tokIx])
+	rm, i := rowMax(d[s*tokIx : s*tokIx+c])
 	sum := 0.0
-	for j := range t.L[tokIx] {
-		sum += math.Exp(t.L[tokIx][j] - rm)
+	for j := range c {
+		sum += math.Exp(d[tokIx*s+j] - rm)
 	}
-	prob := math.Exp(t.L[tokIx][i]-rm) / sum
+	prob := math.Exp(d[tokIx*s+i]-rm) / sum
 	return t.vocab[i], prob
 }
 
 func (t *transformer) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
+	d, _, c, s := unmat(t.L)
 	for range n {
 		t.loadXs(ctx)
 		t.run()
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
-		i := softSample(t.L[tokIx])
+		i := softSample(d[tokIx*s : tokIx*s+c])
 		fmt.Printf("%c", t.vocab[i])
 		ctx = append(ctx, t.vocab[i])
 		ctx = ctx[max(0, len(ctx)-t.context):]
@@ -280,54 +288,54 @@ func (t *transformer) peek(ctx []rune) {
 	fmt.Println("Detailed breakdown for the last token:")
 	lastIx := len(ctx) - 1
 	fmt.Println("Last token's embedding:")
-	printVec(t.xs[lastIx])
+	printRow(t.xs, lastIx)
 	println()
 	fmt.Println("After first LayerNorm:")
-	printVec(t.xs1[lastIx])
+	printRow(t.xs1, lastIx)
 	println()
 	fmt.Println("Token's Query:")
-	printVec(t.Q[lastIx])
+	printRow(t.Q, lastIx)
 	println()
 	fmt.Println("Available Keys:")
 	printMat(t.K)
 	println()
 	fmt.Println("Raw scores against Keys (QKT):")
-	printVec(t.QK[lastIx])
+	printRow(t.QK, lastIx)
 	println()
 	fmt.Println("Normalized Softmax scores:")
-	printVec(t.S[lastIx])
+	printRow(t.S, lastIx)
 	println()
 	fmt.Println("Dot product with Value rows:")
 	printMat(t.values)
 	println()
 	fmt.Println("To get the final Value:")
-	printVec(t.V[lastIx])
+	printRow(t.V, lastIx)
 	println()
 	fmt.Println("Residual stream:")
-	printVec(t.xs[lastIx])
+	printRow(t.xs, lastIx)
 	println("+")
-	printVec(t.V[lastIx])
+	printRow(t.V, lastIx)
 	println("=")
-	printVec(t.R1[lastIx])
+	printRow(t.R1, lastIx)
 	println()
 	fmt.Println("After second LayerNorm:")
-	printVec(t.xs2[lastIx])
+	printRow(t.xs2, lastIx)
 	println()
 	fmt.Println("Pass through Input layer:")
-	printVec(t.I[lastIx])
+	printRow(t.I, lastIx)
 	println()
 	fmt.Println("Activation:")
-	printVec(t.A[lastIx])
+	printRow(t.A, lastIx)
 	println()
 	fmt.Println("Pass through Hidden layer:")
-	printVec(t.H[lastIx])
+	printRow(t.H, lastIx)
 	println()
 	fmt.Println("Residual stream:")
-	printVec(t.R1[lastIx])
+	printRow(t.R1, lastIx)
 	println("+")
-	printVec(t.H[lastIx])
+	printRow(t.H, lastIx)
 	println("=")
-	printVec(t.R2[lastIx])
+	printRow(t.R2, lastIx)
 	println()
 	fmt.Println("Dot product with Linear layer rows:")
 	printMat(t.linear)
@@ -336,16 +344,19 @@ func (t *transformer) peek(ctx []rune) {
 	printVec(t.bias)
 	println()
 	fmt.Println("To get the final Logits:")
-	printVec(t.L[lastIx])
+	printRow(t.L, lastIx)
 	println()
 	fmt.Printf("Input: [%s]\n", string(ctx))
 	fmt.Println("Next token probabilities:")
-	rm, rmix := rowMax(t.L[lastIx])
+	d, _, c, s := unmat(t.L)
+	rm, rmix := rowMax(d[lastIx*s : lastIx*s+c])
 	sum := 0.0
-	for _, x := range t.L[lastIx] {
+	for i := range c {
+		x := d[lastIx*s+i]
 		sum += math.Exp(x - rm)
 	}
-	for i, x := range t.L[lastIx] {
+	for i := range c {
+		x := d[lastIx*s+i]
 		fmt.Printf("[%c] -> %.6f\n", t.vocab[i], math.Exp(x-rm)/sum)
 	}
 	println()
@@ -363,7 +374,7 @@ func (t *transformer) printAttention() {
 		for j := range t.prompt {
 			fg, bg := 0, 0
 			if j <= i {
-				fg = int(255 * t.S[i][j])
+				fg = int(255 * t.S.At(i, j))
 			}
 			fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
 		}
@@ -377,19 +388,19 @@ func (t *transformer) printAttention() {
 
 func (t *transformer) printHeatmap(lastIx, rmix int) {
 	t.heatmap = nil
-	lin := make(vector, len(t.linear))
+	lin := make(vector, t.linear.RawMatrix().Rows)
 	for i := range lin {
-		lin[i] = t.linear[i][rmix]
+		lin[i] = t.linear.At(i, rmix)
 	}
 	maxProd := math.Inf(-1)
 	minProd := math.Inf(1)
 	for i := range lin {
 		prods := vector{
-			t.R2[lastIx][i] * lin[i],
-			t.R1[lastIx][i] * lin[i],
-			t.xs[lastIx][i] * lin[i],
-			t.V[lastIx][i] * lin[i],
-			t.H[lastIx][i] * lin[i],
+			t.R2.At(lastIx, i) * lin[i],
+			t.R1.At(lastIx, i) * lin[i],
+			t.xs.At(lastIx, i) * lin[i],
+			t.V.At(lastIx, i) * lin[i],
+			t.H.At(lastIx, i) * lin[i],
 		}
 		maxProd = max(maxProd, slices.Max(prods))
 		minProd = min(minProd, slices.Min(prods))
@@ -398,7 +409,7 @@ func (t *transformer) printHeatmap(lastIx, rmix int) {
 		rgb := make(vector, t.dModel) // len(lin)
 		for i := range lin {
 			red, blue, bg := 0, 0, 0
-			prod := xs[lastIx][i] * lin[i]
+			prod := xs.At(lastIx, i) * lin[i]
 			if prod > 0 {
 				rgb[i] = prod / (maxProd - minProd)
 				red = int(rgb[i] * 255)
@@ -445,9 +456,10 @@ func (t *transformer) rand(rng *rand.Rand) {
 		T++
 	}
 	mat := func(m matrix) {
-		for i := range m {
-			for j := range m[i] {
-				m[i][j] = rng.Float64() - 0.5
+		d, r, c, s := unmat(m)
+		for i := range r {
+			for j := range c {
+				d[i*s+j] = rng.Float64() - 0.5
 			}
 		}
 	}
@@ -472,9 +484,10 @@ func (t *transformer) apply(theta vector) {
 		}
 	}
 	mat := func(m matrix) {
-		for i := range m {
-			for j := range m[i] {
-				m[i][j] = theta[T]
+		d, r, c, s := unmat(m)
+		for i := range r {
+			for j := range c {
+				d[i*s+j] = theta[T]
 				T++
 			}
 		}
@@ -504,9 +517,10 @@ func (t *transformer) dump(theta vector) {
 		}
 	}
 	mat := func(m matrix) {
-		for i := range m {
-			for j := range m[i] {
-				theta[T] = m[i][j]
+		d, r, c, s := unmat(m)
+		for i := range r {
+			for j := range c {
+				theta[T] = d[i*s+j]
 				T++
 			}
 		}

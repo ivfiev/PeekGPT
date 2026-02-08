@@ -110,7 +110,7 @@ func train(dModel, dVocab, context int, data []rune, iters, ubatches, uiters int
 	return tr.t
 }
 
-func embeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
+func onehotEmbeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
 	dModel := vocab + ctx
 	tokens := map[rune]vector{}
 	pos := map[int]vector{}

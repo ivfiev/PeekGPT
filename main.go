@@ -16,10 +16,10 @@ func main() {
 	blas64.Use(netlib.Implementation{})
 	reader := bufio.NewReader(os.Stdin)
 	seed := time.Now().UnixNano()
-	t := train(32, 4, 16,
+	t := train(64, 4, 32,
 		[]rune("|aa|bb|cc|aa|bb|cc|aa|bb|cc|aa|bb|cc|aa|bb|cc|"),
-		30000, 4, 16, 0.00025, 0.0001, seed)
-	t.generate([]rune("|aa"), 192)
+		100000, 4, 16, 0.00025, 0.0001, seed)
+	t.generate([]rune("|aa|bb|c"), 192)
 	for {
 		fmt.Printf("Enter context, up to %d chars: ", t.context)
 		input, err := reader.ReadString('\n')
@@ -28,5 +28,5 @@ func main() {
 		}
 		t.peek([]rune(strings.TrimRight(input, "\n\r")))
 	}
-	// loadXs teset, multi-blocks, task modes
+	// multi-blocks, task modes
 }

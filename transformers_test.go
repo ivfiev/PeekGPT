@@ -332,3 +332,24 @@ func TestLoss(te *testing.T) {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}
 }
+
+func TestLoadXs(te *testing.T) {
+	t := newT(4, 3, 3, nil)
+	t.tokens = testMat([][]float64{
+		{1, 0, 0, 0},
+		{0, 1, 0, 0},
+		{0, 0, 1, 0},
+	})
+	t.positions = testMat([][]float64{
+		{0, 0, 0, -0.5},
+		{0, -0.1, 0.1, 0},
+		{0, 0, 0, 0.5},
+	})
+	t.vocab = []rune("abc")
+	t.loadXs([]rune("bac"))
+	assertEq(t.xs, [][]float64{
+		{0, 1, 0, -0.5},
+		{1, -0.1, 0.1, 0},
+		{0, 0, 1, 0.5},
+	}, "LoadXS", te)
+}

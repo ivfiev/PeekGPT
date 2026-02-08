@@ -42,10 +42,7 @@ func (tr *training) train(data []rune, seed int64, iters, ubatches, uiters int, 
 	if len(vocab) != T.dVocab {
 		log.Panicf("incompatible vocab %d != %d\n", len(vocab), T.dVocab)
 	}
-	toks, pos := embeds(len(vocab), T.context, vocab)
 	tr.data = data
-	T.tok = toks
-	T.pos = pos
 	T.vocab = vocab
 	theta := make(vector, T.size())
 	rng := rand.New(rand.NewSource(seed))
@@ -103,8 +100,8 @@ func (tr *training) eval2(u, v vector, i int) (float64, float64) {
 	return yu, yv
 }
 
-func train(dVocab, context int, data []rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
-	t := newT(dVocab+context, dVocab, context, ReLU)
+func train(dModel, dVocab, context int, data []rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
+	t := newT(dModel, dVocab, context, ReLU)
 	tr := newTraining(t)
 	tr.iters = iters
 	now := time.Now().UnixMilli()

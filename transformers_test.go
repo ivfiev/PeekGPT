@@ -79,7 +79,7 @@ func TestSPSA(te *testing.T) {
 
 func TestAbcdefggh(te *testing.T) {
 	var seed int64 = 7357
-	t := train(3, 8, []rune("aa|bb|aa|bb|aa|bb|"), 50000, 4, 16, 0.001, 0.001, seed)
+	t := train(16, 3, 8, []rune("aa|bb|aa|bb|aa|bb|"), 42000, 4, 16, 0.00025, 0.00001, seed)
 	tok, prob := t.predict([]rune("aa|b"))
 	if tok != 'b' || prob < 0.9 {
 		te.Fatalf("1 bad prediction %c @ %.3f", tok, prob)

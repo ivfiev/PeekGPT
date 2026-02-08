@@ -13,6 +13,9 @@ type transformer struct {
 	dModel  int
 	dVocab  int
 
+	tokens    matrix // token embeddings
+	positions matrix // position embeddings
+
 	// pre-attention LayerNorm parameters
 	gamma1 vector
 	beta1  vector
@@ -58,10 +61,8 @@ type transformer struct {
 	// logits
 	L matrix
 
-	// training/predictions
+	// vocabulary
 	vocab []rune
-	tok   map[rune]vector
-	pos   map[int]vector
 
 	// prompts/inputs
 	prompt []rune
@@ -77,6 +78,9 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 		dModel:  dModel,
 		dVocab:  dVocab,
 	}
+	t.tokens = makeMat(dVocab, dModel)
+	t.positions = makeMat(ctx, dModel)
+
 	t.xs = makeMat(t.context, t.dModel)
 
 	t.gamma1 = make(vector, dModel)
@@ -150,14 +154,14 @@ func (t *transformer) loss(ys []int) float64 {
 
 func (t *transformer) clone() *transformer {
 	clone := newT(t.dModel, t.dVocab, t.context, t.activation)
-	clone.tok = t.tok
-	clone.pos = t.pos
 	clone.vocab = t.vocab
 	return clone
 }
 
 func (t *transformer) size() int {
-	return len(t.gamma1) + len(t.beta1) +
+	return len(t.tokens.RawMatrix().Data) +
+		len(t.positions.RawMatrix().Data) +
+		len(t.gamma1) + len(t.beta1) +
 		len(t.gamma2) + len(t.beta2) +
 		len(t.queries.RawMatrix().Data) +
 		len(t.keys.RawMatrix().Data) +
@@ -172,18 +176,16 @@ func (t *transformer) loadXs(prompt []rune) {
 	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
-	d, _, _, s := unmat(t.xs)
-	for i := range prompt {
-		tok, ok := t.tok[prompt[i]]
-		if !ok {
-			log.Panicf("loadXs: token %c is invalid", prompt[i])
+	dx, _, _, sx := unmat(t.xs)
+	dt, _, _, st := unmat(t.tokens)
+	dp, _, _, sp := unmat(t.positions)
+	for posIx := range prompt {
+		vocIx := slices.Index(t.vocab, prompt[posIx])
+		if vocIx == -1 {
+			log.Panicf("loadXs: token %c is invalid", prompt[posIx])
 		}
-		pos, ok := t.pos[i]
-		if !ok {
-			log.Panicf("loadXs: pos %d is invalid", i)
-		}
-		for j := range tok {
-			d[i*s+j] = tok[j] + pos[j]
+		for j := range t.dModel {
+			dx[posIx*sx+j] = dt[vocIx*st+j] + dp[posIx*sp+j]
 		}
 	}
 	t.prompt = prompt
@@ -455,22 +457,24 @@ func (t *transformer) rand(rng *rand.Rand) {
 		t.beta2[i] = 0
 		T++
 	}
-	mat := func(m matrix) {
+	mat := func(m matrix, scale float64) {
 		d, r, c, s := unmat(m)
 		for i := range r {
 			for j := range c {
-				d[i*s+j] = rng.Float64() - 0.5
+				d[i*s+j] = scale * 2 * (rng.Float64() - 0.5)
 			}
 		}
 	}
-	mat(t.keys)
-	mat(t.queries)
-	mat(t.values)
-	mat(t.input)
-	mat(t.hidden)
-	mat(t.linear)
+	mat(t.tokens, 0.150)
+	mat(t.positions, 0.100)
+	mat(t.keys, 0.5)
+	mat(t.queries, 0.5)
+	mat(t.values, 0.5)
+	mat(t.input, 0.25)
+	mat(t.hidden, 0.25)
+	mat(t.linear, 0.5)
 	for i := range t.bias {
-		t.bias[i] = rng.Float64() - 0.5
+		t.bias[i] = 0
 		T++
 	}
 }
@@ -496,6 +500,8 @@ func (t *transformer) apply(theta vector) {
 	vec(t.beta1)
 	vec(t.gamma2)
 	vec(t.beta2)
+	mat(t.tokens)
+	mat(t.positions)
 	mat(t.keys)
 	mat(t.queries)
 	mat(t.values)
@@ -529,6 +535,8 @@ func (t *transformer) dump(theta vector) {
 	vec(t.beta1)
 	vec(t.gamma2)
 	vec(t.beta2)
+	mat(t.tokens)
+	mat(t.positions)
 	mat(t.keys)
 	mat(t.queries)
 	mat(t.values)

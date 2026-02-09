@@ -10,33 +10,35 @@ import (
 )
 
 type training struct {
-	t        *transformer
-	t1, t2   *transformer
-	data     []rune
-	ubatches []int
-	uiters   int
-	ys       []int
-	rng      *rand.Rand
-	iters    int
+	t      *transformer
+	t1, t2 *transformer
+	data   [][]rune
+	ys     [][]int
+	rng    *rand.Rand
+	iters  int
 }
 
 func newTraining(t *transformer) *training {
 	return &training{
-		t:        t,
-		t1:       nil,
-		t2:       nil,
-		data:     nil,
-		ubatches: nil,
-		ys:       nil,
+		t:    t,
+		t1:   nil,
+		t2:   nil,
+		data: nil,
+		ys:   nil,
 	}
 }
 
-func (tr *training) train(data []rune, seed int64, iters, ubatches, uiters int, lr, eps float64) *transformer {
+func (tr *training) train(data [][]rune, seed int64, iters, ubatches, uiters int, lr, eps float64) *transformer {
 	T := tr.t
 	vocab := make([]rune, 0, len(data))
-	for _, tok := range data {
-		if slices.Index(vocab, tok) == -1 {
-			vocab = append(vocab, tok)
+	for _, task := range data {
+		for _, tok := range task {
+			if tok == '=' {
+				break
+			}
+			if slices.Index(vocab, tok) == -1 {
+				vocab = append(vocab, tok)
+			}
 		}
 	}
 	if len(vocab) != T.dVocab {
@@ -48,12 +50,17 @@ func (tr *training) train(data []rune, seed int64, iters, ubatches, uiters int, 
 	rng := rand.New(rand.NewSource(seed))
 	T.rand(rng)
 	T.dump(theta)
-	tr.ubatches = make([]int, ubatches)
-	tr.uiters = uiters
-	tr.ys = make([]int, len(data))
+	tr.ys = make([][]int, len(data))
 	for i := range tr.ys {
-		ix := slices.Index(vocab, data[i])
-		tr.ys[i] = ix
+		tr.ys[i] = make([]int, 0, len(data[i]))
+		ix := slices.Index(data[i], '=')
+		for j := 1 + ix; j < len(data[i]); j++ {
+			vocIx := slices.Index(vocab, data[i][j])
+			if vocIx == -1 {
+				log.Panicf("train - bad token %c", data[i][j])
+			}
+			tr.ys[i] = append(tr.ys[i], vocIx)
+		}
 	}
 	tr.t1 = T.clone()
 	tr.t2 = T.clone()
@@ -64,26 +71,23 @@ func (tr *training) train(data []rune, seed int64, iters, ubatches, uiters int, 
 }
 
 func (tr *training) eval(t *transformer, theta vector) float64 {
-	if len(tr.ubatches) == 0 {
-		log.Panic("empty ubatches")
-	}
 	t.apply(theta)
 	loss := 0.0
-	for _, b := range tr.ubatches {
-		t.loadXs(tr.data[b : b+t.context])
+	for i, example := range tr.data {
+		pipeIx := slices.Index(example, '|')
+		eqIx := slices.Index(example, '=')
+		if pipeIx == -1 || eqIx == -1 {
+			log.Fatalf("bad pipe/ex indexes")
+		}
+		t.loadXs(example[:eqIx])
 		t.run()
-		loss += t.loss(tr.ys[1+b : 1+b+t.context])
+		loss += t.loss(tr.ys[i], pipeIx+1, eqIx)
 	}
-	loss /= float64(len(tr.ubatches))
+	loss /= float64(len(tr.data))
 	return loss
 }
 
 func (tr *training) eval2(u, v vector, i int) (float64, float64) {
-	if i%tr.uiters == 0 {
-		for i := range tr.ubatches {
-			tr.ubatches[i] = tr.rng.Int() % (len(tr.data) - tr.t.context)
-		}
-	}
 	var wg sync.WaitGroup
 	yu, yv := 0.0, 0.0
 	wg.Go(func() {
@@ -100,7 +104,7 @@ func (tr *training) eval2(u, v vector, i int) (float64, float64) {
 	return yu, yv
 }
 
-func train(dModel, dVocab, context int, data []rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
+func train(dModel, dVocab, context int, data [][]rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
 	t := newT(dModel, dVocab, context, ReLU)
 	tr := newTraining(t)
 	tr.iters = iters

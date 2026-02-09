@@ -138,18 +138,18 @@ func (t *transformer) run() {
 	addMatV(t.L, t.bias)
 }
 
-func (t *transformer) loss(ys []int) float64 {
+func (t *transformer) loss(ys []int, from, to int) float64 {
 	loss := 0.0
-	d, r, c, s := unmat(t.L)
-	for i := range r {
+	d, _, c, s := unmat(t.L)
+	for i := from; i < to; i++ {
 		rowMax, _ := rowMax(d[i*s : i*s+c])
 		sum := 0.0
 		for j := range c {
 			sum += math.Exp(d[i*s+j] - rowMax)
 		}
-		loss += -d[i*s+ys[i]] + rowMax + math.Log(sum)
+		loss += -d[i*s+ys[i-from]] + rowMax + math.Log(sum)
 	}
-	return loss / float64(t.context)
+	return loss / float64(to-from)
 }
 
 func (t *transformer) clone() *transformer {
@@ -176,6 +176,7 @@ func (t *transformer) loadXs(prompt []rune) {
 	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
+	t.xs.Zero()
 	dx, _, _, sx := unmat(t.xs)
 	dt, _, _, st := unmat(t.tokens)
 	dp, _, _, sp := unmat(t.positions)
@@ -218,6 +219,24 @@ func (t *transformer) generate(ctx []rune, n int) {
 		ctx = append(ctx, t.vocab[i])
 		ctx = ctx[max(0, len(ctx)-t.context):]
 	}
+	println()
+}
+
+func (t *transformer) solve(ctx []rune) {
+	t.loadXs(ctx)
+	t.run()
+	d, _, c, s := unmat(t.L)
+	i := 1 + slices.Index(ctx, '|')
+	prediction := make([]rune, 0)
+	fmt.Println(string(t.vocab))
+	for ; i < len(ctx); i++ {
+		printVec(d[i*s : i*s+c])
+		_, j := rowMax(d[i*s : i*s+c])
+		prediction = append(prediction, t.vocab[j])
+	}
+	fmt.Println(string(prediction))
+	println()
+	t.printAttention()
 	println()
 }
 

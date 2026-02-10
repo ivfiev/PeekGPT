@@ -11,20 +11,21 @@ import (
 
 type training struct {
 	t      *transformer
-	t1, t2 *transformer
-	data   [][]rune
-	ys     [][]int
-	rng    *rand.Rand
-	iters  int
+	t1, t2 *transformer // copies for parallelism
+
+	training   [][]rune
+	validation [][]rune
+
+	iters    int
+	ubatches []int
+	uiters   int
+
+	rng *rand.Rand
 }
 
 func newTraining(t *transformer) *training {
 	return &training{
-		t:    t,
-		t1:   nil,
-		t2:   nil,
-		data: nil,
-		ys:   nil,
+		t: t,
 	}
 }
 
@@ -44,50 +45,65 @@ func (tr *training) train(data [][]rune, seed int64, iters, ubatches, uiters int
 	if len(vocab) != T.dVocab {
 		log.Panicf("incompatible vocab %d != %d\n", len(vocab), T.dVocab)
 	}
-	tr.data = data
+	tr.training = data
 	T.vocab = vocab
 	theta := make(vector, T.size())
 	rng := rand.New(rand.NewSource(seed))
 	T.rand(rng)
 	T.dump(theta)
-	tr.ys = make([][]int, len(data))
-	for i := range tr.ys {
-		tr.ys[i] = make([]int, 0, len(data[i]))
-		ix := slices.Index(data[i], '=')
-		for j := 1 + ix; j < len(data[i]); j++ {
-			vocIx := slices.Index(vocab, data[i][j])
-			if vocIx == -1 {
-				log.Panicf("train - bad token %c", data[i][j])
-			}
-			tr.ys[i] = append(tr.ys[i], vocIx)
-		}
-	}
+	tr.ubatches = make([]int, ubatches)
 	tr.t1 = T.clone()
 	tr.t2 = T.clone()
 	tr.rng = rng
+	tr.uiters = uiters
 	spsa(tr, theta, iters, lr, eps, rng)
 	T.apply(theta)
 	return T
 }
 
+func (tr *training) loadBatch() {
+	for i := range tr.ubatches {
+		ix := tr.rng.Int() % len(tr.training)
+		tr.ubatches[i] = ix
+	}
+}
+
 func (tr *training) eval(t *transformer, theta vector) float64 {
 	t.apply(theta)
 	loss := 0.0
-	for i, example := range tr.data {
+	for _, i := range tr.ubatches {
+		example := tr.training[i]
 		pipeIx := slices.Index(example, '|')
 		eqIx := slices.Index(example, '=')
 		if pipeIx == -1 || eqIx == -1 {
 			log.Fatalf("bad pipe/ex indexes")
 		}
 		t.loadXs(example[:eqIx])
+		tr.loadYs(t, example, 1+pipeIx, 1+eqIx, len(example)-eqIx-1)
 		t.run()
-		loss += t.loss(tr.ys[i], pipeIx+1, eqIx)
+		loss += t.loss()
 	}
-	loss /= float64(len(tr.data))
+	loss /= float64(len(tr.ubatches))
 	return loss
 }
 
+func (tr *training) loadYs(t *transformer, datum []rune, x, y, k int) {
+	for i := range tr.t.ys {
+		t.ys[i] = -1
+	}
+	for i := range k {
+		t.ys[x+i] = slices.Index(tr.t.vocab, datum[y+i])
+		if tr.t.ys[x+i] == -1 {
+			fmt.Printf("%s - %s\n", string(datum), string(t.vocab))
+			log.Panicf("loadYs - bad token %c", datum[y+i])
+		}
+	}
+}
+
 func (tr *training) eval2(u, v vector, i int) (float64, float64) {
+	if i%tr.uiters == 0 {
+		tr.loadBatch()
+	}
 	var wg sync.WaitGroup
 	yu, yv := 0.0, 0.0
 	wg.Go(func() {
@@ -104,7 +120,7 @@ func (tr *training) eval2(u, v vector, i int) (float64, float64) {
 	return yu, yv
 }
 
-func train(dModel, dVocab, context int, data [][]rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
+func train(dModel, dVocab, context int, data, validation [][]rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
 	t := newT(dModel, dVocab, context, ReLU)
 	tr := newTraining(t)
 	tr.iters = iters

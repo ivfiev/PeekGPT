@@ -67,6 +67,7 @@ type transformer struct {
 	// prompts/inputs
 	prompt []rune
 	xs     matrix // inputs
+	ys     []int  // outputs, used for loss
 
 	// graphical output
 	heatmap []vector
@@ -82,6 +83,7 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.positions = makeMat(ctx, dModel)
 
 	t.xs = makeMat(t.context, t.dModel)
+	t.ys = make([]int, ctx)
 
 	t.gamma1 = make(vector, dModel)
 	t.beta1 = make(vector, dModel)
@@ -138,18 +140,23 @@ func (t *transformer) run() {
 	addMatV(t.L, t.bias)
 }
 
-func (t *transformer) loss(ys []int, from, to int) float64 {
+func (t *transformer) loss() float64 {
 	loss := 0.0
-	d, _, c, s := unmat(t.L)
-	for i := from; i < to; i++ {
+	count := 0
+	d, r, c, s := unmat(t.L)
+	for i := range r {
+		if t.ys[i] == -1 {
+			continue
+		}
+		count++
 		rowMax, _ := rowMax(d[i*s : i*s+c])
 		sum := 0.0
 		for j := range c {
 			sum += math.Exp(d[i*s+j] - rowMax)
 		}
-		loss += -d[i*s+ys[i-from]] + rowMax + math.Log(sum)
+		loss += -d[i*s+t.ys[i]] + rowMax + math.Log(sum)
 	}
-	return loss / float64(to-from)
+	return loss / float64(count)
 }
 
 func (t *transformer) clone() *transformer {
@@ -192,18 +199,23 @@ func (t *transformer) loadXs(prompt []rune) {
 	t.prompt = prompt
 }
 
-func (t *transformer) predict(ctx []rune) (rune, float64) {
+func (t *transformer) predict(ctx []rune) ([]rune, vector) {
 	t.loadXs(ctx)
 	t.run()
 	d, _, c, s := unmat(t.L)
-	tokIx := len(ctx) - 1
-	rm, i := rowMax(d[s*tokIx : s*tokIx+c])
-	sum := 0.0
-	for j := range c {
-		sum += math.Exp(d[tokIx*s+j] - rm)
+	nexts := make([]rune, len(ctx))
+	probs := make(vector, len(ctx))
+	for tokIx := range len(ctx) {
+		rm, i := rowMax(d[s*tokIx : s*tokIx+c])
+		sum := 0.0
+		for j := range c {
+			sum += math.Exp(d[tokIx*s+j] - rm)
+		}
+		prob := math.Exp(d[tokIx*s+i]-rm) / sum
+		nexts[tokIx] = t.vocab[i]
+		probs[tokIx] = prob
 	}
-	prob := math.Exp(d[tokIx*s+i]-rm) / sum
-	return t.vocab[i], prob
+	return nexts, probs
 }
 
 func (t *transformer) generate(ctx []rune, n int) {
@@ -484,14 +496,14 @@ func (t *transformer) rand(rng *rand.Rand) {
 			}
 		}
 	}
-	mat(t.tokens, 0.150)
-	mat(t.positions, 0.100)
+	mat(t.tokens, 0.25)
+	mat(t.positions, 0.25)
 	mat(t.keys, 0.5)
 	mat(t.queries, 0.5)
 	mat(t.values, 0.5)
 	mat(t.input, 0.25)
 	mat(t.hidden, 0.25)
-	mat(t.linear, 0.5)
+	mat(t.linear, 0.25)
 	for i := range t.bias {
 		t.bias[i] = 0
 		T++
@@ -501,19 +513,13 @@ func (t *transformer) rand(rng *rand.Rand) {
 func (t *transformer) apply(theta vector) {
 	T := 0
 	vec := func(v vector) {
-		for i := range v {
-			v[i] = theta[T]
-			T++
-		}
+		copy(v, theta[T:T+len(v)])
+		T += len(v)
 	}
 	mat := func(m matrix) {
-		d, r, c, s := unmat(m)
-		for i := range r {
-			for j := range c {
-				d[i*s+j] = theta[T]
-				T++
-			}
-		}
+		d, _, _, _ := unmat(m)
+		copy(d, theta[T:T+len(d)])
+		T += len(d)
 	}
 	vec(t.gamma1)
 	vec(t.beta1)
@@ -536,19 +542,13 @@ func (t *transformer) apply(theta vector) {
 func (t *transformer) dump(theta vector) {
 	T := 0
 	vec := func(v vector) {
-		for i := range v {
-			theta[T] = v[i]
-			T++
-		}
+		copy(theta[T:T+len(v)], v)
+		T += len(v)
 	}
 	mat := func(m matrix) {
-		d, r, c, s := unmat(m)
-		for i := range r {
-			for j := range c {
-				theta[T] = d[i*s+j]
-				T++
-			}
-		}
+		d, _, _, _ := unmat(m)
+		copy(theta[T:T+len(d)], d)
+		T += len(d)
 	}
 	vec(t.gamma1)
 	vec(t.beta1)

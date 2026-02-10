@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"testing"
 	"time"
 )
@@ -77,30 +78,39 @@ func TestSPSA(te *testing.T) {
 	}
 }
 
-// func TestAbcdefggh(te *testing.T) {
-// 	var seed int64 = 7357
-// 	t := train(16, 3, 8, []rune("aa|bb|aa|bb|aa|bb|"), 42000, 4, 16, 0.00025, 0.00001, seed)
-// 	tok, prob := t.predict([]rune("aa|b"))
-// 	if tok != 'b' || prob < 0.9 {
-// 		te.Fatalf("1 bad prediction %c @ %.3f", tok, prob)
-// 	}
-// 	tok, prob = t.predict([]rune("aa|bb"))
-// 	if tok != '|' || prob < 0.9 {
-// 		te.Fatalf("2 bad prediction %c @ %.3f", tok, prob)
-// 	}
-// 	tok, prob = t.predict([]rune("b|a"))
-// 	if tok != 'a' || prob < 0.9 {
-// 		te.Fatalf("3 bad prediction %c @ %.3f", tok, prob)
-// 	}
-// 	tok, prob = t.predict([]rune("|aa|"))
-// 	if tok != 'b' || prob < 0.9 {
-// 		te.Fatalf("4 bad prediction %c @ %.3f", tok, prob)
-// 	}
-// 	tok, prob = t.predict([]rune("|bb|"))
-// 	if tok != 'a' || prob < 0.9 {
-// 		te.Fatalf("5 bad prediction %c @ %.3f", tok, prob)
-// 	}
-// }
+func TestIntegration(te *testing.T) {
+	var seed int64 = 7357
+	t := train(16, 4, 5, [][]rune{
+		[]rune("ab|??=ab"),
+		[]rune("ba|??=ba"),
+		[]rune("ab|??=ab"),
+		[]rune("ba|??=ba"),
+		[]rune("b|??=b"),
+		[]rune("a|??=a"),
+		[]rune("ba|??=ba"),
+		[]rune("a|??=a"),
+		[]rune("ba|??=ba"),
+		[]rune("b|??=b"),
+		[]rune("ab|??=ab"),
+		[]rune("ab|??=ab"),
+	}, nil, 10000, 8, 4, 0.001, 0.00001, seed)
+	toks, _ := t.predict([]rune("ab|??"))
+	if !slices.Equal(toks[3:5], []rune("ab")) {
+		te.Fatalf("Integration ab != %s", string(toks[3:5]))
+	}
+	toks, _ = t.predict([]rune("ba|??"))
+	if !slices.Equal(toks[3:5], []rune("ba")) {
+		te.Fatalf("Integration ba != %s", string(toks[3:5]))
+	}
+	toks, _ = t.predict([]rune("a|?"))
+	if !slices.Equal(toks[2:3], []rune("a")) {
+		te.Fatalf("Integration ba != %s", string(toks[2:4]))
+	}
+	toks, _ = t.predict([]rune("b|?"))
+	if !slices.Equal(toks[2:3], []rune("b")) {
+		te.Fatalf("Integration ba != %s", string(toks[2:4]))
+	}
+}
 
 func TestLayerNorm(te *testing.T) {
 	xs := testMat([][]float64{
@@ -324,10 +334,15 @@ func TestLoss(te *testing.T) {
 		}
 		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
 	}
-	ys := []int{1, 0, 2, 0, 2}
-	loss := t.loss(ys, 0, 5)
+	t.ys = []int{1, 0, 2, 0, 2}
+	loss := t.loss()
 	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
-	// fmt.Printf("losses debug: %f %f\n", loss, expected)
+	if math.Abs(loss-expected) > 0.0001 {
+		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
+	}
+	t.ys = []int{-1, 1, 2, -1, -1}
+	loss = t.loss()
+	expected = (p(1, 1) + p(2, 2)) / 2.0
 	if math.Abs(loss-expected) > 0.0001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}
@@ -352,4 +367,76 @@ func TestLoadXs(te *testing.T) {
 		{1, -0.1, 0.1, 0},
 		{0, 0, 1, 0.5},
 	}, "LoadXS", te)
+	t.loadXs([]rune("cb"))
+	assertEq(t.xs, [][]float64{
+		{0, 0, 1, -0.5},
+		{0, 0.9, 0.1, 0},
+		{0, 0, 0, 0},
+	}, "LoadXS", te)
+}
+
+func TestMatrixInit(te *testing.T) {
+	assert := func(X any, p func(float64) bool) {
+		switch X := X.(type) {
+		case matrix:
+			_, rows, cols, _ := unmat(X)
+			for i := range rows {
+				for j := range cols {
+					if !p(X.At(i, j)) {
+						te.Fatalf("matrix property failed at position %d %d", i, j)
+					}
+				}
+			}
+		case vector:
+			for i := range X {
+				if !p(X[i]) {
+					te.Fatalf("vector property failed at position %d", i)
+				}
+			}
+		}
+	}
+	t := newT(4, 3, 5, ReLU)
+	assert(t.tokens, func(f float64) bool { return f == 0 })
+	assert(t.xs, func(f float64) bool { return f == 0 })
+
+	t.rand(rand.New(rand.NewSource(7357)))
+	assert(t.tokens, func(f float64) bool { return f != 0 })
+	assert(t.positions, func(f float64) bool { return f != 0 })
+	assert(t.gamma1, func(f float64) bool { return f == 1 })
+	assert(t.beta1, func(f float64) bool { return f == 0 })
+	assert(t.keys, func(f float64) bool { return f != 0 })
+	assert(t.queries, func(f float64) bool { return f != 0 })
+	assert(t.values, func(f float64) bool { return f != 0 })
+	assert(t.gamma2, func(f float64) bool { return f == 1 })
+	assert(t.beta2, func(f float64) bool { return f == 0 })
+	assert(t.input, func(f float64) bool { return f != 0 })
+	assert(t.hidden, func(f float64) bool { return f != 0 })
+	assert(t.linear, func(f float64) bool { return f != 0 })
+	assert(t.bias, func(f float64) bool { return f == 0 })
+
+	theta := make(vector, t.size())
+	for i := range theta {
+		theta[i] = 7357
+	}
+	t.apply(theta)
+	assert(t.tokens, func(f float64) bool { return f == 7357 })
+	assert(t.positions, func(f float64) bool { return f == 7357 })
+	assert(t.gamma1, func(f float64) bool { return f == 7357 })
+	assert(t.beta1, func(f float64) bool { return f == 7357 })
+	assert(t.keys, func(f float64) bool { return f == 7357 })
+	assert(t.queries, func(f float64) bool { return f == 7357 })
+	assert(t.values, func(f float64) bool { return f == 7357 })
+	assert(t.gamma2, func(f float64) bool { return f == 7357 })
+	assert(t.beta2, func(f float64) bool { return f == 7357 })
+	assert(t.input, func(f float64) bool { return f == 7357 })
+	assert(t.hidden, func(f float64) bool { return f == 7357 })
+	assert(t.linear, func(f float64) bool { return f == 7357 })
+	assert(t.bias, func(f float64) bool { return f == 7357 })
+
+	for i := range theta {
+		theta[i] = 0
+	}
+	assert(theta, func(f float64) bool { return f == 0 })
+	t.dump(theta)
+	assert(theta, func(f float64) bool { return f == 7357 })
 }

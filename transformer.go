@@ -45,9 +45,10 @@ type transformer struct {
 	// attention values
 	K  matrix
 	Q  matrix
+	V  matrix
 	QK matrix
 	S  matrix
-	V  matrix
+	SV matrix
 
 	// residual values
 	R1 matrix
@@ -82,38 +83,39 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.tokens = makeMat(dVocab, dModel)
 	t.positions = makeMat(ctx, dModel)
 
-	t.xs = makeMat(t.context, t.dModel)
+	t.xs = makeMat(ctx, dModel)
 	t.ys = make([]int, ctx)
 
 	t.gamma1 = make(vector, dModel)
 	t.beta1 = make(vector, dModel)
 	t.xs1 = makeMat(ctx, dModel)
 
-	t.queries = makeMat(ctx, dModel)
-	t.keys = makeMat(ctx, dModel)
-	t.values = makeMat(dModel, ctx)
+	t.queries = makeMat(dModel, dModel)
+	t.keys = makeMat(dModel, dModel)
+	t.values = makeMat(dModel, dModel)
 
 	t.gamma2 = make(vector, dModel)
 	t.beta2 = make(vector, dModel)
-	t.xs2 = makeMat(t.context, t.dModel)
+	t.xs2 = makeMat(ctx, dModel)
 
-	t.input = makeMat(dModel, dModel)
+	t.input = makeMat(dModel, 2*dModel)
 	t.activation = activation
-	t.hidden = makeMat(dModel, dModel)
+	t.hidden = makeMat(2*dModel, dModel)
 
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
 
-	t.K = makeMat(ctx, ctx)
-	t.Q = makeMat(ctx, ctx)
+	t.K = makeMat(ctx, dModel)
+	t.Q = makeMat(ctx, dModel)
+	t.V = makeMat(ctx, dModel)
 	t.QK = makeMat(ctx, ctx)
 	t.S = makeMat(ctx, ctx)
-	t.V = makeMat(ctx, dModel)
+	t.SV = makeMat(ctx, dModel)
 	t.L = makeMat(ctx, dVocab)
-	t.R1 = makeMat(t.context, t.dModel)
-	t.R2 = makeMat(t.context, t.dModel)
-	t.I = makeMat(ctx, dModel)
-	t.A = makeMat(ctx, dModel)
+	t.R1 = makeMat(ctx, dModel)
+	t.R2 = makeMat(ctx, dModel)
+	t.I = makeMat(ctx, 2*dModel)
+	t.A = makeMat(ctx, 2*dModel)
 	t.H = makeMat(ctx, dModel)
 
 	return &t
@@ -121,19 +123,20 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 
 func (t *transformer) run() {
 	layerNorm(t.xs1, t.xs, t.gamma1, t.beta1)
-	mulMatT(t.Q, t.xs1, t.queries)
-	mulMatT(t.K, t.xs1, t.keys)
+	mulMat(t.Q, t.xs1, t.queries)
+	mulMat(t.K, t.xs1, t.keys)
+	mulMat(t.V, t.xs1, t.values)
 	mulMatT(t.QK, t.Q, t.K)
 	d := 1 / math.Sqrt(float64(t.dModel))
 	mulMatK(t.QK, d)
 	softmaxT(t.S, t.QK)
-	mulMatT(t.V, t.S, t.values)
-	addMatM(t.R1, t.xs, t.V)
+	mulMat(t.SV, t.S, t.V)
+	addMatM(t.R1, t.xs, t.SV)
 
 	layerNorm(t.xs2, t.R1, t.gamma2, t.beta2)
-	mulMatT(t.I, t.xs2, t.input)
+	mulMat(t.I, t.xs2, t.input)
 	mapMat(t.A, t.I, t.activation)
-	mulMatT(t.H, t.A, t.hidden)
+	mulMat(t.H, t.A, t.hidden)
 	addMatM(t.R2, t.R1, t.H)
 
 	mulMat(t.L, t.R2, t.linear)

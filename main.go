@@ -20,9 +20,9 @@ func main() {
 	validationSet := generateCopyTask([]rune("abc"), 3, 100, rng)
 	blas64.Use(netlib.Implementation{})
 	reader := bufio.NewReader(os.Stdin)
-	t := train(64, 5, 7,
+	t := train(32, 5, 7,
 		trainingSet, validationSet,
-		100000, 32, 16, 0.0001, 0.00001, seed)
+		10000, 32, 16, 0.0005, 0.00001, seed)
 	for {
 		fmt.Printf("Enter context, up to %d chars: ", t.context)
 		input, err := reader.ReadString('\n')

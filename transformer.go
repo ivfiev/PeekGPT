@@ -45,9 +45,10 @@ type transformer struct {
 	// attention values
 	K  matrix
 	Q  matrix
+	V  matrix
 	QK matrix
 	S  matrix
-	V  matrix
+	SV matrix
 
 	// residual values
 	R1 matrix
@@ -67,6 +68,7 @@ type transformer struct {
 	// prompts/inputs
 	prompt []rune
 	xs     matrix // inputs
+	ys     []int  // outputs, used for loss
 
 	// graphical output
 	heatmap []vector
@@ -81,19 +83,20 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.tokens = makeMat(dVocab, dModel)
 	t.positions = makeMat(ctx, dModel)
 
-	t.xs = makeMat(t.context, t.dModel)
+	t.xs = makeMat(ctx, dModel)
+	t.ys = make([]int, ctx)
 
 	t.gamma1 = make(vector, dModel)
 	t.beta1 = make(vector, dModel)
 	t.xs1 = makeMat(ctx, dModel)
 
-	t.queries = makeMat(ctx, dModel)
-	t.keys = makeMat(ctx, dModel)
-	t.values = makeMat(dModel, ctx)
+	t.queries = makeMat(dModel, dModel)
+	t.keys = makeMat(dModel, dModel)
+	t.values = makeMat(dModel, dModel)
 
 	t.gamma2 = make(vector, dModel)
 	t.beta2 = make(vector, dModel)
-	t.xs2 = makeMat(t.context, t.dModel)
+	t.xs2 = makeMat(ctx, dModel)
 
 	t.input = makeMat(dModel, dModel)
 	t.activation = activation
@@ -102,14 +105,15 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
 
-	t.K = makeMat(ctx, ctx)
-	t.Q = makeMat(ctx, ctx)
+	t.K = makeMat(ctx, dModel)
+	t.Q = makeMat(ctx, dModel)
+	t.V = makeMat(ctx, dModel)
 	t.QK = makeMat(ctx, ctx)
 	t.S = makeMat(ctx, ctx)
-	t.V = makeMat(ctx, dModel)
+	t.SV = makeMat(ctx, dModel)
 	t.L = makeMat(ctx, dVocab)
-	t.R1 = makeMat(t.context, t.dModel)
-	t.R2 = makeMat(t.context, t.dModel)
+	t.R1 = makeMat(ctx, dModel)
+	t.R2 = makeMat(ctx, dModel)
 	t.I = makeMat(ctx, dModel)
 	t.A = makeMat(ctx, dModel)
 	t.H = makeMat(ctx, dModel)
@@ -118,38 +122,47 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 }
 
 func (t *transformer) run() {
+	// attention
 	layerNorm(t.xs1, t.xs, t.gamma1, t.beta1)
-	mulMatT(t.Q, t.xs1, t.queries)
-	mulMatT(t.K, t.xs1, t.keys)
+	mulMat(t.Q, t.xs1, t.queries)
+	mulMat(t.K, t.xs1, t.keys)
+	mulMat(t.V, t.xs1, t.values)
 	mulMatT(t.QK, t.Q, t.K)
 	d := 1 / math.Sqrt(float64(t.dModel))
 	mulMatK(t.QK, d)
 	softmaxT(t.S, t.QK)
-	mulMatT(t.V, t.S, t.values)
-	addMatM(t.R1, t.xs, t.V)
+	mulMat(t.SV, t.S, t.V)
+	addMatM(t.R1, t.xs, t.SV)
 
+	// mlp
 	layerNorm(t.xs2, t.R1, t.gamma2, t.beta2)
-	mulMatT(t.I, t.xs2, t.input)
+	mulMat(t.I, t.xs2, t.input)
 	mapMat(t.A, t.I, t.activation)
-	mulMatT(t.H, t.A, t.hidden)
+	mulMat(t.H, t.A, t.hidden)
 	addMatM(t.R2, t.R1, t.H)
 
+	// output
 	mulMat(t.L, t.R2, t.linear)
 	addMatV(t.L, t.bias)
 }
 
-func (t *transformer) loss(ys []int) float64 {
+func (t *transformer) loss() float64 {
 	loss := 0.0
+	count := 0
 	d, r, c, s := unmat(t.L)
 	for i := range r {
+		if t.ys[i] == -1 {
+			continue
+		}
+		count++
 		rowMax, _ := rowMax(d[i*s : i*s+c])
 		sum := 0.0
 		for j := range c {
 			sum += math.Exp(d[i*s+j] - rowMax)
 		}
-		loss += -d[i*s+ys[i]] + rowMax + math.Log(sum)
+		loss += -d[i*s+t.ys[i]] + rowMax + math.Log(sum)
 	}
-	return loss / float64(t.context)
+	return loss / float64(count)
 }
 
 func (t *transformer) clone() *transformer {
@@ -176,6 +189,7 @@ func (t *transformer) loadXs(prompt []rune) {
 	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
+	t.xs.Zero()
 	dx, _, _, sx := unmat(t.xs)
 	dt, _, _, st := unmat(t.tokens)
 	dp, _, _, sp := unmat(t.positions)
@@ -191,18 +205,23 @@ func (t *transformer) loadXs(prompt []rune) {
 	t.prompt = prompt
 }
 
-func (t *transformer) predict(ctx []rune) (rune, float64) {
+func (t *transformer) predict(ctx []rune) ([]rune, vector) {
 	t.loadXs(ctx)
 	t.run()
 	d, _, c, s := unmat(t.L)
-	tokIx := len(ctx) - 1
-	rm, i := rowMax(d[s*tokIx : s*tokIx+c])
-	sum := 0.0
-	for j := range c {
-		sum += math.Exp(d[tokIx*s+j] - rm)
+	nexts := make([]rune, len(ctx))
+	probs := make(vector, len(ctx))
+	for tokIx := range len(ctx) {
+		rm, i := rowMax(d[s*tokIx : s*tokIx+c])
+		sum := 0.0
+		for j := range c {
+			sum += math.Exp(d[tokIx*s+j] - rm)
+		}
+		prob := math.Exp(d[tokIx*s+i]-rm) / sum
+		nexts[tokIx] = t.vocab[i]
+		probs[tokIx] = prob
 	}
-	prob := math.Exp(d[tokIx*s+i]-rm) / sum
-	return t.vocab[i], prob
+	return nexts, probs
 }
 
 func (t *transformer) generate(ctx []rune, n int) {
@@ -218,6 +237,24 @@ func (t *transformer) generate(ctx []rune, n int) {
 		ctx = append(ctx, t.vocab[i])
 		ctx = ctx[max(0, len(ctx)-t.context):]
 	}
+	println()
+}
+
+func (t *transformer) solve(ctx []rune) {
+	t.loadXs(ctx)
+	t.run()
+	d, _, c, s := unmat(t.L)
+	i := 1 + slices.Index(ctx, '|')
+	prediction := make([]rune, 0)
+	fmt.Println(string(t.vocab))
+	for ; i < len(ctx); i++ {
+		printVec(d[i*s : i*s+c])
+		_, j := rowMax(d[i*s : i*s+c])
+		prediction = append(prediction, t.vocab[j])
+	}
+	fmt.Println(string(prediction))
+	println()
+	t.printAttention()
 	println()
 }
 
@@ -465,14 +502,14 @@ func (t *transformer) rand(rng *rand.Rand) {
 			}
 		}
 	}
-	mat(t.tokens, 0.150)
-	mat(t.positions, 0.100)
+	mat(t.tokens, 0.25)
+	mat(t.positions, 0.25)
 	mat(t.keys, 0.5)
 	mat(t.queries, 0.5)
 	mat(t.values, 0.5)
 	mat(t.input, 0.25)
 	mat(t.hidden, 0.25)
-	mat(t.linear, 0.5)
+	mat(t.linear, 0.25)
 	for i := range t.bias {
 		t.bias[i] = 0
 		T++
@@ -482,19 +519,13 @@ func (t *transformer) rand(rng *rand.Rand) {
 func (t *transformer) apply(theta vector) {
 	T := 0
 	vec := func(v vector) {
-		for i := range v {
-			v[i] = theta[T]
-			T++
-		}
+		copy(v, theta[T:T+len(v)])
+		T += len(v)
 	}
 	mat := func(m matrix) {
-		d, r, c, s := unmat(m)
-		for i := range r {
-			for j := range c {
-				d[i*s+j] = theta[T]
-				T++
-			}
-		}
+		d, _, _, _ := unmat(m)
+		copy(d, theta[T:T+len(d)])
+		T += len(d)
 	}
 	vec(t.gamma1)
 	vec(t.beta1)
@@ -517,19 +548,13 @@ func (t *transformer) apply(theta vector) {
 func (t *transformer) dump(theta vector) {
 	T := 0
 	vec := func(v vector) {
-		for i := range v {
-			theta[T] = v[i]
-			T++
-		}
+		copy(theta[T:T+len(v)], v)
+		T += len(v)
 	}
 	mat := func(m matrix) {
-		d, r, c, s := unmat(m)
-		for i := range r {
-			for j := range c {
-				theta[T] = d[i*s+j]
-				T++
-			}
-		}
+		d, _, _, _ := unmat(m)
+		copy(theta[T:T+len(d)], d)
+		T += len(d)
 	}
 	vec(t.gamma1)
 	vec(t.beta1)

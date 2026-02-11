@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"testing"
 	"time"
 )
@@ -77,28 +78,46 @@ func TestSPSA(te *testing.T) {
 	}
 }
 
-func TestAbcdefggh(te *testing.T) {
+func TestIntegration(te *testing.T) {
 	var seed int64 = 7357
-	t := train(16, 3, 8, []rune("aa|bb|aa|bb|aa|bb|"), 42000, 4, 16, 0.00025, 0.00001, seed)
-	tok, prob := t.predict([]rune("aa|b"))
-	if tok != 'b' || prob < 0.9 {
-		te.Fatalf("1 bad prediction %c @ %.3f", tok, prob)
+	t := train(16, 4, 5, [][]rune{
+		[]rune("ab|??=ab"),
+		[]rune("ba|??=ba"),
+		[]rune("ab|??=ab"),
+		[]rune("ba|??=ba"),
+		[]rune("b|?=b"),
+		[]rune("a|?=a"),
+		[]rune("ba|??=ba"),
+		[]rune("a|?=a"),
+		[]rune("aa|??=aa"),
+		[]rune("bb|??=bb"),
+		[]rune("ba|??=ba"),
+		[]rune("b|?=b"),
+		[]rune("aa|??=aa"),
+		[]rune("bb|??=bb"),
+	}, [][]rune{
+		[]rune("a|?=a"),
+		[]rune("b|?=b"),
+		[]rune("ab|??=ab"),
+		[]rune("ba|??=ba"),
+		[]rune("aa|??=aa"),
+		[]rune("bb|??=bb"),
+	}, 10000, 8, 4, 0.001, 0.00001, seed)
+	toks, _ := t.predict([]rune("ab|??"))
+	if !slices.Equal(toks[3:5], []rune("ab")) {
+		te.Fatalf("Integration ab != %s", string(toks[3:5]))
 	}
-	tok, prob = t.predict([]rune("aa|bb"))
-	if tok != '|' || prob < 0.9 {
-		te.Fatalf("2 bad prediction %c @ %.3f", tok, prob)
+	toks, _ = t.predict([]rune("ba|??"))
+	if !slices.Equal(toks[3:5], []rune("ba")) {
+		te.Fatalf("Integration ba != %s", string(toks[3:5]))
 	}
-	tok, prob = t.predict([]rune("b|a"))
-	if tok != 'a' || prob < 0.9 {
-		te.Fatalf("3 bad prediction %c @ %.3f", tok, prob)
+	toks, _ = t.predict([]rune("a|?"))
+	if !slices.Equal(toks[2:3], []rune("a")) {
+		te.Fatalf("Integration ba != %s", string(toks[2:4]))
 	}
-	tok, prob = t.predict([]rune("|aa|"))
-	if tok != 'b' || prob < 0.9 {
-		te.Fatalf("4 bad prediction %c @ %.3f", tok, prob)
-	}
-	tok, prob = t.predict([]rune("|bb|"))
-	if tok != 'a' || prob < 0.9 {
-		te.Fatalf("5 bad prediction %c @ %.3f", tok, prob)
+	toks, _ = t.predict([]rune("b|?"))
+	if !slices.Equal(toks[2:3], []rune("b")) {
+		te.Fatalf("Integration ba != %s", string(toks[2:4]))
 	}
 }
 
@@ -153,19 +172,21 @@ func TestRun(te *testing.T) {
 		{0, 1, -1, 0.5, 1},
 		{1, 0, -1, 0.5, 1},
 		{-1, 0.5, -1, 0.5, 1},
+		{0, 0.5, 1, -0.5, 0},
 	})
 	t.keys = testMat([][]float64{
 		{1, 0.5, 1, 0, 1},
+		{0, 0.5, 1, -0.5, 0},
 		{0.5, -1, -1, 0.5, 1},
 		{-1, -1, -1, 2, 1},
 		{1, 0, -2, 0.5, 0},
 	})
 	t.values = testMat([][]float64{
-		{2, 0, -0.5, 1},
-		{-1, 2, -1, 1},
-		{-1, 0, 0.5, 1},
-		{0.5, -2, 0.5, 1},
-		{0.5, -2, 0.5, 1},
+		{2, 0, -0.5, 1, -0.5},
+		{-1, 2, -1, 1, 0.5},
+		{-1, 0, 0.5, 1, 0.5},
+		{0.5, -2, 0.5, 1, -0.5},
+		{0.5, -2, 0.5, 1, 0},
 	})
 	t.input = testMat([][]float64{
 		{-0.5, 1, 0.5, 2, -2},
@@ -190,76 +211,82 @@ func TestRun(te *testing.T) {
 	})
 	t.bias = vector{0.5, -0.5, 0.3}
 	t.run()
+	assertEq(t.xs1, [][]float64{
+		{1.225, -0.816, -0.816, 1.225, -0.816},
+		{-0.816, 1.225, -0.816, 1.225, -0.816},
+		{-0.816, -0.816, -0.816, 1.225, 1.225},
+		{0.000, 0.000, 0.000, 0.000, 0.000},
+	}, "xs1", te)
 	assertEq(t.Q, [][]float64{
-		{4.082, -0.204, 1.837, -1.021},
-		{2.041, 1.837, -0.204, 2.041},
-		{5.103, 1.837, 1.837, 3.062},
-		{0.000, 0.000, 0.000, 0.000},
+		{-1.429, -1.225, -1.633, 3.266, 0.816},
+		{-2.449, 1.837, -1.633, -0.816, 0.816},
+		{-2.449, 0.816, 2.449, -2.858, -1.225},
+		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "Q", te)
 	assertEq(t.K, [][]float64{
-		{-0.816, 2.041, 2.041, 3.470},
-		{-1.837, -1.021, 2.041, 1.429},
-		{-0.816, 3.062, 6.124, 1.429},
+		{-1.225, -0.204, 1.633, 2.041, 1.633},
+		{-3.266, -0.204, 1.633, 1.021, -0.408},
+		{-1.225, -1.225, -4.491, 3.062, -0.408},
+		{0.000, 0.000, 0.000, 0.000, 0.000},
+	}, "K", te)
+	assertEq(t.QK, [][]float64{
+		{3.279, 2.348, 9.056, 0.000},
+		{-0.168, 1.696, 2.348, 0.000},
+		{-0.447, 4.211, -7.714, 0.000},
 		{0.000, 0.000, 0.000, 0.000},
 	}, "K", te)
 	assertEq(t.QK, [][]float64{
-		{-1.584, -2.236, 2.609, 0},
-		{3.913, -1.397, 2.515, 0},
-		{6.242, -1.397, 7.640, 0},
-		{0.000, 0.000, 0.000, 0},
-	}, "K", te)
-	assertEq(t.QK, [][]float64{
-		{-1.584, -2.236, 2.609, 0},
-		{3.913, -1.397, 2.515, 0},
-		{6.242, -1.397, 7.640, 0},
-		{0.000, 0.000, 0.000, 0},
+		{3.279, 2.348, 9.056, 0.000},
+		{-0.168, 1.696, 2.348, 0.000},
+		{-0.447, 4.211, -7.714, 0.000},
+		{0.000, 0.000, 0.000, 0.000},
 	}, "K", te)
 	assertEq(t.S, [][]float64{
-		{1, 0, 0, 0},
-		{0.995, 0.005, 0, 0},
-		{0.198, 0, 0.802, 0},
-		{0.000, 0.000, 0.000, 0},
+		{1.000, 0.000, 0.000, 0.000},
+		{0.134, 0.866, 0.000, 0.000},
+		{0.009, 0.991, 0.000, 0.000},
+		{0.000, 0.000, 0.000, 0.000},
 	}, "K", te)
 	assertEq(t.V, [][]float64{
-		{2, -1, -1, 0.5, 0.5},
-		{1.990, -0.985, -0.995, 0.488, 0.488},
-		{-0.004, -1, 0.203, 0.5, 0.5},
+		{4.287, -2.449, 0.000, 0.000, -2.041},
+		{-1.837, 1.633, -1.021, 0.000, 0.000},
+		{1.225, -6.532, 2.041, 0.000, -1.021},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "V", te)
 	assertEq(t.R1, [][]float64{
-		{3.000, -1.000, -1.000, 1.500, 0.500},
-		{1.990, 0.015, -0.995, 1.488, 0.488},
-		{-0.004, -1.000, 0.203, 1.500, 1.500},
+		{5.287, -2.449, 0.000, 1.000, -2.041},
+		{-1.015, 2.085, -0.884, 1.000, -0.274},
+		{-1.780, 1.595, -1.011, 1.000, 0.981},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "R1", te)
 	assertEq(t.I, [][]float64{
-		{-1.046, 1.896, 0.261, -3.072, -2.164},
-		{-0.071, 4.139, -1.060, -2.525, -3.233},
-		{-1.397, 0.579, 2.994, -0.180, 3.338},
+		{-1.777, 0.112, 1.155, 1.629, -7.724},
+		{0.129, 3.778, -5.578, 0.977, 1.373},
+		{0.262, 2.253, -2.817, -1.010, 5.367},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "I", te)
 	assertEq(t.A, [][]float64{
-		{0.000, 1.896, 0.261, 0.000, 0.000},
-		{0.000, 4.139, 0.000, 0.000, 0.000},
-		{0.000, 0.579, 2.994, 0.000, 3.338},
+		{0.000, 0.112, 1.155, 1.629, 0.000},
+		{0.129, 3.778, 0.000, 0.977, 1.373},
+		{0.262, 2.253, 0.000, 0.000, 5.367},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
-	}, "I", te)
+	}, "A", te)
 	assertEq(t.H, [][]float64{
-		{-1.765, 4.315, 2.798, 0.261, 1.209},
-		{-4.139, 8.278, 4.967, 0.000, 2.070},
-		{-5.758, 12.154, 10.022, 2.994, 14.967},
+		{-0.828, 1.609, 4.162, 2.560, 1.322},
+		{6.652, 8.114, 9.971, -6.321, 10.214},
+		{4.912, 6.928, 10.003, -3.983, 21.640},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "H", te)
 	assertEq(t.R2, [][]float64{
-		{1.235, 3.315, 1.798, 1.761, 1.709},
-		{-2.149, 8.293, 3.972, 1.488, 2.557},
-		{-5.762, 11.154, 10.224, 4.494, 16.467},
+		{4.458, -0.840, 4.162, 3.560, -0.719},
+		{5.637, 10.198, 9.088, -5.321, 9.940},
+		{3.132, 8.522, 8.992, -2.983, 22.620},
 		{0.000, 0.000, 0.000, 0.000, 0.000},
 	}, "R2", te)
 	assertEq(t.L, [][]float64{
-		{11.273, -2.840, 10.790},
-		{21.881, 0.178, 6.191},
-		{52.175, -28.60, 15.128},
+		{14.430, -5.878, 15.676},
+		{48.433, -21.180, 32.029},
+		{54.180, -46.878, 37.857},
 		{0.500, -0.500, 0.300},
 	}, "L", te)
 }
@@ -324,10 +351,15 @@ func TestLoss(te *testing.T) {
 		}
 		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
 	}
-	ys := []int{1, 0, 2, 0, 2}
-	loss := t.loss(ys)
+	t.ys = []int{1, 0, 2, 0, 2}
+	loss := t.loss()
 	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
-	// fmt.Printf("losses debug: %f %f\n", loss, expected)
+	if math.Abs(loss-expected) > 0.0001 {
+		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
+	}
+	t.ys = []int{-1, 1, 2, -1, -1}
+	loss = t.loss()
+	expected = (p(1, 1) + p(2, 2)) / 2.0
 	if math.Abs(loss-expected) > 0.0001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}
@@ -352,4 +384,76 @@ func TestLoadXs(te *testing.T) {
 		{1, -0.1, 0.1, 0},
 		{0, 0, 1, 0.5},
 	}, "LoadXS", te)
+	t.loadXs([]rune("cb"))
+	assertEq(t.xs, [][]float64{
+		{0, 0, 1, -0.5},
+		{0, 0.9, 0.1, 0},
+		{0, 0, 0, 0},
+	}, "LoadXS", te)
+}
+
+func TestMatrixInit(te *testing.T) {
+	assert := func(X any, p func(float64) bool) {
+		switch X := X.(type) {
+		case matrix:
+			_, rows, cols, _ := unmat(X)
+			for i := range rows {
+				for j := range cols {
+					if !p(X.At(i, j)) {
+						te.Fatalf("matrix property failed at position %d %d", i, j)
+					}
+				}
+			}
+		case vector:
+			for i := range X {
+				if !p(X[i]) {
+					te.Fatalf("vector property failed at position %d", i)
+				}
+			}
+		}
+	}
+	t := newT(4, 3, 5, ReLU)
+	assert(t.tokens, func(f float64) bool { return f == 0 })
+	assert(t.xs, func(f float64) bool { return f == 0 })
+
+	t.rand(rand.New(rand.NewSource(7357)))
+	assert(t.tokens, func(f float64) bool { return f != 0 })
+	assert(t.positions, func(f float64) bool { return f != 0 })
+	assert(t.gamma1, func(f float64) bool { return f == 1 })
+	assert(t.beta1, func(f float64) bool { return f == 0 })
+	assert(t.keys, func(f float64) bool { return f != 0 })
+	assert(t.queries, func(f float64) bool { return f != 0 })
+	assert(t.values, func(f float64) bool { return f != 0 })
+	assert(t.gamma2, func(f float64) bool { return f == 1 })
+	assert(t.beta2, func(f float64) bool { return f == 0 })
+	assert(t.input, func(f float64) bool { return f != 0 })
+	assert(t.hidden, func(f float64) bool { return f != 0 })
+	assert(t.linear, func(f float64) bool { return f != 0 })
+	assert(t.bias, func(f float64) bool { return f == 0 })
+
+	theta := make(vector, t.size())
+	for i := range theta {
+		theta[i] = 7357
+	}
+	t.apply(theta)
+	assert(t.tokens, func(f float64) bool { return f == 7357 })
+	assert(t.positions, func(f float64) bool { return f == 7357 })
+	assert(t.gamma1, func(f float64) bool { return f == 7357 })
+	assert(t.beta1, func(f float64) bool { return f == 7357 })
+	assert(t.keys, func(f float64) bool { return f == 7357 })
+	assert(t.queries, func(f float64) bool { return f == 7357 })
+	assert(t.values, func(f float64) bool { return f == 7357 })
+	assert(t.gamma2, func(f float64) bool { return f == 7357 })
+	assert(t.beta2, func(f float64) bool { return f == 7357 })
+	assert(t.input, func(f float64) bool { return f == 7357 })
+	assert(t.hidden, func(f float64) bool { return f == 7357 })
+	assert(t.linear, func(f float64) bool { return f == 7357 })
+	assert(t.bias, func(f float64) bool { return f == 7357 })
+
+	for i := range theta {
+		theta[i] = 0
+	}
+	assert(theta, func(f float64) bool { return f == 0 })
+	t.dump(theta)
+	assert(theta, func(f float64) bool { return f == 7357 })
 }

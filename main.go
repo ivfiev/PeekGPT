@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -13,14 +14,15 @@ import (
 )
 
 func main() {
-	trainingSet := generateCopyTask([]rune("abc"), 3, 1000)
-	validationSet := generateCopyTask([]rune("abc"), 4, 100)
+	seed := time.Now().UnixNano()
+	rng := rand.New(rand.NewSource(seed))
+	trainingSet := generateCopyTask([]rune("abc"), 3, 1000, rng)
+	validationSet := generateCopyTask([]rune("abc"), 3, 100, rng)
 	blas64.Use(netlib.Implementation{})
 	reader := bufio.NewReader(os.Stdin)
-	seed := time.Now().UnixNano()
 	t := train(64, 5, 7,
 		trainingSet, validationSet,
-		10000, 16, 16, 0.0001, 0.00001, seed)
+		100000, 32, 16, 0.0001, 0.00001, seed)
 	for {
 		fmt.Printf("Enter context, up to %d chars: ", t.context)
 		input, err := reader.ReadString('\n')
@@ -31,7 +33,6 @@ func main() {
 		t.solve([]rune(strings.TrimRight(input, "\n\r")))
 	}
 	// multi-blocks
-	// validation + training set, use that shuffle func
 	// fix graphics/peek
-	// try to make compatible with seqs
+	// seqs
 }

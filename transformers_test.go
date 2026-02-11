@@ -85,15 +85,24 @@ func TestIntegration(te *testing.T) {
 		[]rune("ba|??=ba"),
 		[]rune("ab|??=ab"),
 		[]rune("ba|??=ba"),
-		[]rune("b|??=b"),
-		[]rune("a|??=a"),
+		[]rune("b|?=b"),
+		[]rune("a|?=a"),
 		[]rune("ba|??=ba"),
-		[]rune("a|??=a"),
+		[]rune("a|?=a"),
+		[]rune("aa|??=aa"),
+		[]rune("bb|??=bb"),
 		[]rune("ba|??=ba"),
-		[]rune("b|??=b"),
+		[]rune("b|?=b"),
+		[]rune("aa|??=aa"),
+		[]rune("bb|??=bb"),
+	}, [][]rune{
+		[]rune("a|?=a"),
+		[]rune("b|?=b"),
 		[]rune("ab|??=ab"),
-		[]rune("ab|??=ab"),
-	}, nil, 10000, 8, 4, 0.001, 0.00001, seed)
+		[]rune("ba|??=ba"),
+		[]rune("aa|??=aa"),
+		[]rune("bb|??=bb"),
+	}, 10000, 8, 4, 0.001, 0.00001, seed)
 	toks, _ := t.predict([]rune("ab|??"))
 	if !slices.Equal(toks[3:5], []rune("ab")) {
 		te.Fatalf("Integration ab != %s", string(toks[3:5]))

@@ -10,7 +10,6 @@ import (
 )
 
 type training struct {
-	t      *transformer
 	t1, t2 *transformer // copies for parallelism
 
 	training   [][]rune
@@ -25,12 +24,12 @@ type training struct {
 
 func newTraining(t *transformer) *training {
 	return &training{
-		t: t,
+		t1: t,
 	}
 }
 
-func (tr *training) train(data [][]rune, seed int64, iters, ubatches, uiters int, lr, eps float64) *transformer {
-	T := tr.t
+func (tr *training) train(data, validation [][]rune, seed int64, iters, ubatches, uiters int, lr, eps float64) *transformer {
+	T := tr.t1
 	vocab := make([]rune, 0, len(data))
 	for _, task := range data {
 		for _, tok := range task {
@@ -46,13 +45,13 @@ func (tr *training) train(data [][]rune, seed int64, iters, ubatches, uiters int
 		log.Panicf("incompatible vocab %d != %d\n", len(vocab), T.dVocab)
 	}
 	tr.training = data
+	tr.validation = validation
 	T.vocab = vocab
 	theta := make(vector, T.size())
 	rng := rand.New(rand.NewSource(seed))
 	T.rand(rng)
 	T.dump(theta)
 	tr.ubatches = make([]int, ubatches)
-	tr.t1 = T.clone()
 	tr.t2 = T.clone()
 	tr.rng = rng
 	tr.uiters = uiters
@@ -72,30 +71,42 @@ func (tr *training) eval(t *transformer, theta vector) float64 {
 	t.apply(theta)
 	loss := 0.0
 	for _, i := range tr.ubatches {
-		example := tr.training[i]
-		pipeIx := slices.Index(example, '|')
-		eqIx := slices.Index(example, '=')
-		if pipeIx == -1 || eqIx == -1 {
-			log.Fatalf("bad pipe/ex indexes")
-		}
-		t.loadXs(example[:eqIx])
-		tr.loadYs(t, example, 1+pipeIx, 1+eqIx, len(example)-eqIx-1)
-		t.run()
-		loss += t.loss()
+		data := tr.training[i]
+		loss += tr.pointLoss(t, data)
 	}
-	loss /= float64(len(tr.ubatches))
-	return loss
+	return loss / float64(len(tr.ubatches))
 }
 
-func (tr *training) loadYs(t *transformer, datum []rune, x, y, k int) {
-	for i := range tr.t.ys {
+func (tr *training) validate(t *transformer, theta vector) float64 {
+	t.apply(theta)
+	loss := 0.0
+	for _, data := range tr.validation {
+		loss += tr.pointLoss(t, data)
+	}
+	return loss / float64(len(tr.validation))
+}
+
+func (tr *training) pointLoss(t *transformer, data []rune) float64 {
+	separator := slices.Index(data, '|')
+	target := slices.Index(data, '=')
+	if separator == -1 || target == -1 {
+		log.Fatalf("bad pipe/ex indexes")
+	}
+	t.loadXs(data[:target])
+	tr.loadYs(t, data, 1+separator, 1+target, len(data)-target-1)
+	t.run()
+	return t.loss()
+}
+
+func (tr *training) loadYs(t *transformer, data []rune, x, y, k int) {
+	for i := range t.ys {
 		t.ys[i] = -1
 	}
 	for i := range k {
-		t.ys[x+i] = slices.Index(tr.t.vocab, datum[y+i])
-		if tr.t.ys[x+i] == -1 {
-			fmt.Printf("%s - %s\n", string(datum), string(t.vocab))
-			log.Panicf("loadYs - bad token %c", datum[y+i])
+		t.ys[x+i] = slices.Index(t.vocab, data[y+i])
+		if t.ys[x+i] == -1 {
+			fmt.Printf("%s - %s\n", string(data), string(t.vocab))
+			log.Panicf("loadYs - bad token %c", data[y+i])
 		}
 	}
 }
@@ -113,9 +124,14 @@ func (tr *training) eval2(u, v vector, i int) (float64, float64) {
 		yv = tr.eval(tr.t2, v)
 	})
 	wg.Wait()
-	if i%100 == 0 {
+	if i%250 == 0 {
+		w := u
+		if i%500 == 0 {
+			w = v
+		}
+		loss := tr.validate(tr.t1, w)
 		fmt.Printf("\r              ")
-		fmt.Printf("\r%.3f  %d%%", (yu+yv)/2, int(float64(i)/float64(tr.iters)*100))
+		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(tr.iters)*100))
 	}
 	return yu, yv
 }
@@ -125,20 +141,7 @@ func train(dModel, dVocab, context int, data, validation [][]rune, iters, ubatch
 	tr := newTraining(t)
 	tr.iters = iters
 	now := time.Now().UnixMilli()
-	tr.train(data, seed, iters, ubatches, uiters, lr, eps)
+	tr.train(data, validation, seed, iters, ubatches, uiters, lr, eps)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", t.size(), float64(time.Now().UnixMilli()-now)/1000)
-	return tr.t
-}
-
-func onehotEmbeds(vocab, ctx int, toks []rune) (map[rune]vector, map[int]vector) {
-	dModel := vocab + ctx
-	tokens := map[rune]vector{}
-	pos := map[int]vector{}
-	for i := range vocab {
-		tokens[toks[i]] = onehot(dModel, i)
-	}
-	for i := range ctx {
-		pos[i] = onehot(dModel, vocab+i)
-	}
-	return tokens, pos
+	return tr.t1
 }

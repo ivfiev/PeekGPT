@@ -195,12 +195,6 @@ func rademacher(v vector, rng *rand.Rand) vector {
 	return v
 }
 
-func onehot(dim, ix int) vector {
-	v := make(vector, dim)
-	v[ix] = 1
-	return v
-}
-
 func softSample(logits vector) int {
 	rm, _ := rowMax(logits)
 	var sum float64 = 0

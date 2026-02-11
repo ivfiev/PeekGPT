@@ -22,7 +22,7 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 	t := train(32, 5, 7,
 		trainingSet, validationSet,
-		10000, 32, 16, 0.0005, 0.00001, seed)
+		30000, 32, 16, 0.0001, 0.00001, seed)
 	for {
 		fmt.Printf("Enter context, up to %d chars: ", t.context)
 		input, err := reader.ReadString('\n')

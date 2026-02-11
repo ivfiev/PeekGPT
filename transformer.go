@@ -122,6 +122,7 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 }
 
 func (t *transformer) run() {
+	// attention
 	layerNorm(t.xs1, t.xs, t.gamma1, t.beta1)
 	mulMat(t.Q, t.xs1, t.queries)
 	mulMat(t.K, t.xs1, t.keys)
@@ -133,12 +134,14 @@ func (t *transformer) run() {
 	mulMat(t.SV, t.S, t.V)
 	addMatM(t.R1, t.xs, t.SV)
 
+	// mlp
 	layerNorm(t.xs2, t.R1, t.gamma2, t.beta2)
 	mulMat(t.I, t.xs2, t.input)
 	mapMat(t.A, t.I, t.activation)
 	mulMat(t.H, t.A, t.hidden)
 	addMatM(t.R2, t.R1, t.H)
 
+	// output
 	mulMat(t.L, t.R2, t.linear)
 	addMatV(t.L, t.bias)
 }

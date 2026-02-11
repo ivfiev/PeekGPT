@@ -98,9 +98,9 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.beta2 = make(vector, dModel)
 	t.xs2 = makeMat(ctx, dModel)
 
-	t.input = makeMat(dModel, 2*dModel)
+	t.input = makeMat(dModel, dModel)
 	t.activation = activation
-	t.hidden = makeMat(2*dModel, dModel)
+	t.hidden = makeMat(dModel, dModel)
 
 	t.linear = makeMat(dModel, dVocab)
 	t.bias = make(vector, dVocab)
@@ -114,8 +114,8 @@ func newT(dModel, dVocab, ctx int, activation func(float64) float64) *transforme
 	t.L = makeMat(ctx, dVocab)
 	t.R1 = makeMat(ctx, dModel)
 	t.R2 = makeMat(ctx, dModel)
-	t.I = makeMat(ctx, 2*dModel)
-	t.A = makeMat(ctx, 2*dModel)
+	t.I = makeMat(ctx, dModel)
+	t.A = makeMat(ctx, dModel)
 	t.H = makeMat(ctx, dModel)
 
 	return &t

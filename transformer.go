@@ -226,6 +226,7 @@ func (t *transformer) loadXs(prompt []rune) {
 	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
+	t.xs.Zero()
 	for _, b := range t.blocks {
 		b.xs0.Zero()
 		b.xs1.Zero()

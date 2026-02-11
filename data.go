@@ -9,7 +9,7 @@ import (
 func generateCopyTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	data := make([][]rune, 0, n)
 	for range n {
-		k := 1 + rand.Int()%maxLen
+		k := 1 + rng.Int()%maxLen
 		datum := make([]rune, k)
 		for i := range k {
 			datum[i] = vocab[rng.Int()%len(vocab)]

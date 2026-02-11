@@ -22,17 +22,17 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 	t := train(32, 9, 2,
 		trainingSet, validationSet,
-		100000, 32, 16, 0.0001, 0.00001, seed)
+		50000, 32, 16, 0.0001, 0.00001, seed)
 	for {
 		fmt.Printf("Enter context, up to %d chars: ", t.context)
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			log.Fatal(err)
 		}
-		// t.peek([]rune(strings.TrimRight(input, "\n\r")))
 		t.solve([]rune(strings.TrimRight(input, "\n\r")))
 	}
-	// multi-blocks
-	// fix graphics/peek
-	// seqs
+	// fix graphics/peek. triple-check printAttention, is S not inverted?
+	// more info during training?
+	// maybe spsa K
+	// scale & seqs
 }

@@ -3,20 +3,54 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 )
 
 func generateCopyTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
-	data := make([][]rune, 0, n)
+	dataset := make([][]rune, 0, n)
 	for range n {
 		k := 1 + rng.Int()%maxLen
-		datum := make([]rune, k)
+		data := make([]rune, k)
 		for i := range k {
-			datum[i] = vocab[rng.Int()%len(vocab)]
+			data[i] = vocab[rng.Int()%len(vocab)]
 		}
-		str := string(datum)
+		str := string(data)
 		qs := strings.Repeat("?", len(str))
-		data = append(data, []rune(fmt.Sprintf("%s|%s=%s", str, qs, str)))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s|%s=%s", str, qs, str)))
 	}
-	return data
+	return dataset
+}
+
+func generateReverseTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	for range n {
+		k := 1 + rng.Int()%maxLen
+		data := make([]rune, k)
+		for i := range k {
+			data[i] = vocab[rng.Int()%len(vocab)]
+		}
+		str := string(data)
+		slices.Reverse(data)
+		rev := string(data)
+		qs := strings.Repeat("?", len(str))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s|%s=%s", str, qs, rev)))
+	}
+	return dataset
+}
+
+func generateIndexTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	for range n {
+		k := 1 + rng.Int()%maxLen
+		data := make([]rune, k)
+		for i := range k {
+			data[i] = vocab[rng.Int()%len(vocab)]
+		}
+		str := string(data)
+		ix := rng.Int() % k
+		ch := data[ix]
+		dataset = append(dataset, []rune(fmt.Sprintf("%d%s|?=%c", ix, str, ch)))
+	}
+	return dataset
 }

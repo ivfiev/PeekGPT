@@ -121,6 +121,14 @@ func rowMax(row vector) (float64, int) {
 	return rowMax, i
 }
 
+func rowSum(row vector, rowMax float64) float64 {
+	sum := 0.0
+	for _, x := range row {
+		sum += math.Exp(x - rowMax)
+	}
+	return sum
+}
+
 func softmaxT(S, A matrix) {
 	dA, rA, cA, sA := unmat(A)
 	dS, rS, cS, sS := unmat(S)
@@ -198,10 +206,7 @@ func rademacher(v vector, rng *rand.Rand) vector {
 
 func softSample(logits vector) int {
 	rm, _ := rowMax(logits)
-	var sum float64 = 0
-	for i := range logits {
-		sum += math.Exp(logits[i] - rm)
-	}
+	sum := rowSum(logits, rm)
 	var running float64 = 0
 	r := rand.Float64()
 	for i := range logits {

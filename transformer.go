@@ -151,7 +151,6 @@ func (t *transformer) run() {
 		b.run()
 		xs = b.R2
 	}
-	// output
 	mulMat(t.L, xs, t.linear)
 	addMatV(t.L, t.bias)
 }
@@ -186,11 +185,9 @@ func (t *transformer) loss() float64 {
 			continue
 		}
 		count++
-		rowMax, _ := rowMax(d[i*s : i*s+c])
-		sum := 0.0
-		for j := range c {
-			sum += math.Exp(d[i*s+j] - rowMax)
-		}
+		row := d[i*s : i*s+c]
+		rowMax, _ := rowMax(row)
+		sum := rowSum(row, rowMax)
 		loss += -d[i*s+t.ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(count)
@@ -264,10 +261,7 @@ func (t *transformer) predict(ctx []rune) ([]rune, vector) {
 	probs := make(vector, len(ctx))
 	for tokIx := range len(ctx) {
 		rm, i := rowMax(d[s*tokIx : s*tokIx+c])
-		sum := 0.0
-		for j := range c {
-			sum += math.Exp(d[tokIx*s+j] - rm)
-		}
+		sum := rowSum(d[tokIx*s:tokIx*s+c], rm)
 		prob := math.Exp(d[tokIx*s+i]-rm) / sum
 		nexts[tokIx] = t.vocab[i]
 		probs[tokIx] = prob

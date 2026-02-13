@@ -28,26 +28,31 @@ func newTraining(t *transformer) *training {
 	}
 }
 
-func (tr *training) train(data, validation [][]rune, seed int64, iters, ubatches, uiters int, lr, eps float64) *transformer {
-	T := tr.t1
+func (tr *training) train(
+	data, validation [][]rune,
+	seed int64,
+	iters, ubatches, uiters int,
+	lr, eps float64,
+) *transformer {
+	t := tr.t1
 	vocab := getVocab(data)
-	if len(vocab) != T.dVocab {
-		log.Panicf("incompatible vocab %d != %d\n", len(vocab), T.dVocab)
+	if len(vocab) != t.dVocab {
+		log.Panicf("incompatible vocab %d != %d\n", len(vocab), t.dVocab)
 	}
 	tr.training = data
 	tr.validation = validation
-	T.vocab = vocab
-	theta := make(vector, T.size())
+	t.vocab = vocab
+	theta := make(vector, t.size())
 	rng := rand.New(rand.NewSource(seed))
-	T.rand(rng)
-	T.dump(theta)
+	t.rand(rng)
+	t.dump(theta)
 	tr.ubatches = make([]int, ubatches)
-	tr.t2 = T.clone()
+	tr.t2 = t.clone()
 	tr.rng = rng
 	tr.uiters = uiters
 	spsa(tr, theta, iters, lr, eps, rng)
-	T.apply(theta)
-	return T
+	t.apply(theta)
+	return t
 }
 
 func getVocab(data [][]rune) []rune {
@@ -141,7 +146,13 @@ func (tr *training) eval2(u, v vector, i int) (float64, float64) {
 	return yu, yv
 }
 
-func train(dModel, context, blocks int, data, validation [][]rune, iters, ubatches, uiters int, lr, eps float64, seed int64) *transformer {
+func train(
+	dModel, context, blocks int,
+	data, validation [][]rune,
+	iters, ubatches, uiters int,
+	lr, eps float64,
+	seed int64,
+) *transformer {
 	t := newT(dModel, context, blocks, getVocab(data))
 	tr := newTraining(t)
 	tr.iters = iters

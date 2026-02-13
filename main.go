@@ -20,7 +20,7 @@ func main() {
 	validationSet := generateCopyTask([]rune("0123456789"), 4, 100, rng)
 	blas64.Use(netlib.Implementation{})
 	reader := bufio.NewReader(os.Stdin)
-	t := train(32, 9, 2,
+	t := train(32, 9, 3,
 		trainingSet, validationSet,
 		50000, 32, 16, 0.0001, 0.00001, seed)
 	for {
@@ -31,8 +31,4 @@ func main() {
 		}
 		t.solve([]rune(strings.TrimRight(input, "\n\r")))
 	}
-	// fix graphics/peek. triple-check printAttention, is S not inverted?
-	// more info during training?
-	// maybe spsa K
-	// scale & seqs
 }

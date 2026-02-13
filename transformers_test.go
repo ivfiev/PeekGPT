@@ -19,28 +19,52 @@ func testMat(data [][]float64) matrix {
 	return A
 }
 
-func assertEq(actual matrix, expected [][]float64, err string, te *testing.T) {
-	fail := func() {
-		println("\nactual:")
-		printMat(actual)
-		println("expected:")
-		printMat(testMat(expected))
-		println()
-		te.Fatal(err)
-	}
-	_, r, c, _ := unmat(actual)
-	if r != len(expected) {
-		fail()
-	}
-	for i := range expected {
-		if c != len(expected[i]) {
+func assertEq(actual matrix, expected any, err string, te *testing.T) {
+	switch expected := expected.(type) {
+	case [][]float64:
+		fail := func() {
+			println("\nactual:")
+			printMat(actual)
+			println("expected:")
+			printMat(testMat(expected))
+			println()
+			te.Fatal(err)
+		}
+		_, r, c, _ := unmat(actual)
+		if r != len(expected) {
 			fail()
 		}
-		for j := range expected[i] {
-			if math.Abs(actual.At(i, j)-expected[i][j]) > 0.001 {
+		for i := range expected {
+			if c != len(expected[i]) {
+				fail()
+			}
+			for j := range expected[i] {
+				if math.Abs(actual.At(i, j)-expected[i][j]) > 0.001 {
+					fail()
+				}
+			}
+		}
+	case matrix:
+		fail := func() {
+			println("\nactual:")
+			printMat(actual)
+			println("expected:")
+			printMat(expected)
+			println()
+			te.Fatal(err)
+		}
+		da, ra, ca, _ := unmat(actual)
+		de, re, ce, _ := unmat(expected)
+		if ra != re || ca != ce || len(da) != len(de) {
+			fail()
+		}
+		for i := range da {
+			if math.Abs(da[i]-de[i]) > 0.001 {
 				fail()
 			}
 		}
+	default:
+		te.Fatal("assertEq: bad types")
 	}
 }
 
@@ -139,143 +163,105 @@ func TestSoftmax(te *testing.T) {
 	}, "Softmax", te)
 }
 
-// TODO - test blocks in smaller pieces + test integration between them
+func TestLoadingXs(te *testing.T) {
+	t := newT(4, 3, 1, []rune("123"))
+	t.xs = testMat([][]float64{
+		{1, 0, 0, -0.5},
+		{0, 1, 0, 0.0},
+		{0, 0, 1, 0.5},
+	})
+	t.run()
+	assertEq(t.blocks[0].xs0, [][]float64{
+		{1, 0, 0, -0.5},
+		{0, 1, 0, 0.0},
+		{0, 0, 1, 0.5},
+	}, "xs0", te)
+}
 
-// func TestRun(te *testing.T) {
-// 	t := newT(5, 3, 4, ReLU)
-// 	t.xs = testMat([][]float64{
-// 		{1, 0, 0, 1, 0},
-// 		{0, 1, 0, 1, 0},
-// 		{0, 0, 0, 1, 1},
-// 		{0, 0, 0, 0, 0},
-// 	})
-// 	t.gamma1 = vector{1, 1, 1, 1, 1}
-// 	t.beta1 = vector{0, 0, 0, 0, 0}
-// 	t.gamma2 = vector{1, 1, 1, 1, 1}
-// 	t.beta2 = vector{0, 0, 0, 0, 0}
-// 	t.queries = testMat([][]float64{
-// 		{0.5, -0.5, -1, 2.5, 1},
-// 		{0, 1, -1, 0.5, 1},
-// 		{1, 0, -1, 0.5, 1},
-// 		{-1, 0.5, -1, 0.5, 1},
-// 		{0, 0.5, 1, -0.5, 0},
-// 	})
-// 	t.keys = testMat([][]float64{
-// 		{1, 0.5, 1, 0, 1},
-// 		{0, 0.5, 1, -0.5, 0},
-// 		{0.5, -1, -1, 0.5, 1},
-// 		{-1, -1, -1, 2, 1},
-// 		{1, 0, -2, 0.5, 0},
-// 	})
-// 	t.values = testMat([][]float64{
-// 		{2, 0, -0.5, 1, -0.5},
-// 		{-1, 2, -1, 1, 0.5},
-// 		{-1, 0, 0.5, 1, 0.5},
-// 		{0.5, -2, 0.5, 1, -0.5},
-// 		{0.5, -2, 0.5, 1, 0},
-// 	})
-// 	t.input = testMat([][]float64{
-// 		{-0.5, 1, 0.5, 2, -2},
-// 		{0.5, 2, -2, 2, 1},
-// 		{0.5, -1, 2, 1, 1},
-// 		{-1, 1, 1, 1, 0},
-// 		{0.1, 0, 2, 0, 3.5},
-// 	})
-// 	t.hidden = testMat([][]float64{
-// 		{-0.5, -1, 0.5, 2, -2},
-// 		{2, 2, 2, -2, 1.5},
-// 		{0.5, 1.2, 2, 1, 1},
-// 		{-1, 0, 1, 1, 0},
-// 		{0.1, 0.5, 1, 0, 3.5},
-// 	})
-// 	t.linear = testMat([][]float64{
-// 		{0.5, -0.5, 3},
-// 		{1, 1, 1},
-// 		{3.1, -0.9, 0},
-// 		{0.04, 0, 1},
-// 		{0.7, -2, 1},
-// 	})
-// 	t.bias = vector{0.5, -0.5, 0.3}
-// 	t.run()
-// 	assertEq(t.xs1, [][]float64{
-// 		{1.225, -0.816, -0.816, 1.225, -0.816},
-// 		{-0.816, 1.225, -0.816, 1.225, -0.816},
-// 		{-0.816, -0.816, -0.816, 1.225, 1.225},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "xs1", te)
-// 	assertEq(t.Q, [][]float64{
-// 		{-1.429, -1.225, -1.633, 3.266, 0.816},
-// 		{-2.449, 1.837, -1.633, -0.816, 0.816},
-// 		{-2.449, 0.816, 2.449, -2.858, -1.225},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "Q", te)
-// 	assertEq(t.K, [][]float64{
-// 		{-1.225, -0.204, 1.633, 2.041, 1.633},
-// 		{-3.266, -0.204, 1.633, 1.021, -0.408},
-// 		{-1.225, -1.225, -4.491, 3.062, -0.408},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "K", te)
-// 	assertEq(t.QK, [][]float64{
-// 		{3.279, 2.348, 9.056, 0.000},
-// 		{-0.168, 1.696, 2.348, 0.000},
-// 		{-0.447, 4.211, -7.714, 0.000},
-// 		{0.000, 0.000, 0.000, 0.000},
-// 	}, "K", te)
-// 	assertEq(t.QK, [][]float64{
-// 		{3.279, 2.348, 9.056, 0.000},
-// 		{-0.168, 1.696, 2.348, 0.000},
-// 		{-0.447, 4.211, -7.714, 0.000},
-// 		{0.000, 0.000, 0.000, 0.000},
-// 	}, "K", te)
-// 	assertEq(t.S, [][]float64{
-// 		{1.000, 0.000, 0.000, 0.000},
-// 		{0.134, 0.866, 0.000, 0.000},
-// 		{0.009, 0.991, 0.000, 0.000},
-// 		{0.000, 0.000, 0.000, 0.000},
-// 	}, "K", te)
-// 	assertEq(t.V, [][]float64{
-// 		{4.287, -2.449, 0.000, 0.000, -2.041},
-// 		{-1.837, 1.633, -1.021, 0.000, 0.000},
-// 		{1.225, -6.532, 2.041, 0.000, -1.021},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "V", te)
-// 	assertEq(t.R1, [][]float64{
-// 		{5.287, -2.449, 0.000, 1.000, -2.041},
-// 		{-1.015, 2.085, -0.884, 1.000, -0.274},
-// 		{-1.780, 1.595, -1.011, 1.000, 0.981},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "R1", te)
-// 	assertEq(t.I, [][]float64{
-// 		{-1.777, 0.112, 1.155, 1.629, -7.724},
-// 		{0.129, 3.778, -5.578, 0.977, 1.373},
-// 		{0.262, 2.253, -2.817, -1.010, 5.367},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "I", te)
-// 	assertEq(t.A, [][]float64{
-// 		{0.000, 0.112, 1.155, 1.629, 0.000},
-// 		{0.129, 3.778, 0.000, 0.977, 1.373},
-// 		{0.262, 2.253, 0.000, 0.000, 5.367},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "A", te)
-// 	assertEq(t.H, [][]float64{
-// 		{-0.828, 1.609, 4.162, 2.560, 1.322},
-// 		{6.652, 8.114, 9.971, -6.321, 10.214},
-// 		{4.912, 6.928, 10.003, -3.983, 21.640},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "H", te)
-// 	assertEq(t.R2, [][]float64{
-// 		{4.458, -0.840, 4.162, 3.560, -0.719},
-// 		{5.637, 10.198, 9.088, -5.321, 9.940},
-// 		{3.132, 8.522, 8.992, -2.983, 22.620},
-// 		{0.000, 0.000, 0.000, 0.000, 0.000},
-// 	}, "R2", te)
-// 	assertEq(t.L, [][]float64{
-// 		{14.430, -5.878, 15.676},
-// 		{48.433, -21.180, 32.029},
-// 		{54.180, -46.878, 37.857},
-// 		{0.500, -0.500, 0.300},
-// 	}, "L", te)
-// }
+func TestBlockLayerNorm(te *testing.T) {
+	b := newB(4, 3, ReLU)
+	b.xs0 = testMat([][]float64{
+		{1, 0, 0, 0},
+		{0, 0, 0, 1},
+		{0, 0, 0, 0},
+	})
+	b.gamma1 = vector{1.1, 1.2, 1.3, 1.4}
+	b.beta1 = vector{0.5, 0.6, 0.7, -0.5}
+	b.run()
+	assertEq(b.xs1, [][]float64{
+		{2.405, -0.093, -0.051, -1.308},
+		{-0.135, -0.093, -0.051, 1.925},
+		{0.000, 0.000, 0.000, 0.000},
+	}, "xs1", te)
+}
+
+func TestBlockAttention(te *testing.T) {
+	t := newT(4, 3, 2, []rune("abc"))
+	t.rand(rand.New(rand.NewSource(7357)))
+	t.xs = testMat([][]float64{
+		{0.2, -0.34, 1.2, -0.5},
+		{-0.6, 0.1, 0.2, 0.6},
+		{2, 1, 0, -1},
+	})
+	mat34 := makeMat(3, 4)
+	mat33 := makeMat(3, 3)
+	t.run()
+
+	assertEq(t.blocks[0].xs0, t.xs, "0.xs0", te)
+	layerNorm(mat34, t.blocks[0].xs0, t.blocks[0].gamma1, t.blocks[0].beta1)
+	assertEq(mat34, t.blocks[0].xs1, "0.xs1", te)
+
+	mulMat(mat34, t.blocks[0].xs1, t.blocks[0].queries)
+	assertEq(mat34, t.blocks[0].Q, "0.Q", te)
+
+	mulMat(mat34, t.blocks[0].xs1, t.blocks[0].keys)
+	assertEq(mat34, t.blocks[0].K, "0.K", te)
+
+	mulMat(mat34, t.blocks[0].xs1, t.blocks[0].values)
+	assertEq(mat34, t.blocks[0].V, "0.V", te)
+
+	mulMatT(mat33, t.blocks[0].Q, t.blocks[0].K)
+	mulMatK(mat33, 1/math.Sqrt(4))
+	assertEq(mat33, t.blocks[0].QK, "0.QK", te)
+
+	softmaxT(mat33, t.blocks[0].QK)
+	assertEq(mat33, t.blocks[0].S, "0.S", te)
+
+	mulMat(mat34, t.blocks[0].S, t.blocks[0].V)
+	assertEq(mat34, t.blocks[0].SV, "0.SV", te)
+
+	mat34.Zero()
+	addMatM(mat34, t.blocks[0].xs0, t.blocks[0].SV)
+	assertEq(mat34, t.blocks[0].R1, "0.R1", te)
+
+	mat34.Zero()
+	layerNorm(mat34, t.blocks[0].R1, t.blocks[0].gamma2, t.blocks[0].beta2)
+	assertEq(mat34, t.blocks[0].xs2, "0.xs2", te)
+
+	mulMat(mat34, t.blocks[0].xs2, t.blocks[0].input)
+	assertEq(mat34, t.blocks[0].I, "0.I", te)
+
+	mapMat(mat34, t.blocks[0].I, ReLU)
+	assertEq(mat34, t.blocks[0].A, "0.A", te)
+
+	mulMat(mat34, t.blocks[0].A, t.blocks[0].hidden)
+	assertEq(mat34, t.blocks[0].H, "0.H", te)
+
+	addMatM(mat34, t.blocks[0].H, t.blocks[0].R1)
+	assertEq(mat34, t.blocks[0].R2, "0.R2", te)
+
+	assertEq(t.blocks[1].xs0, t.blocks[0].R2, "1.xs0", te)
+
+	mulMat(mat33, t.blocks[1].R2, t.linear)
+	assertEq(t.L, mat33, "t.L", te)
+
+	d, _, _, _ := unmat(t.L)
+	for _, x := range d {
+		if math.Abs(x) < 0.001 {
+			te.Fatal("t.L = 0")
+		}
+	}
+}
 
 // func TestHeatmaps(te *testing.T) {
 // 	t := newT(3, 3, 3, ReLU)

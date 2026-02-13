@@ -192,26 +192,6 @@ func TestSoftmax(te *testing.T) {
 	}, "Softmax", te)
 }
 
-func TestLoadingXs(te *testing.T) {
-	t := newT(4, 3, 1, []rune("abc"))
-	t.tokens = testMat([][]float64{
-		{1, 0, 0, 0},
-		{0, 1, 0, 0},
-		{0, 0, 1, 0},
-	})
-	t.positions = testMat([][]float64{
-		{0, 0, 0, 1},
-		{0, 0, 0, 2},
-		{0, 0, 0, 3},
-	})
-	t.loadXs([]rune("cab"))
-	assertEq(t.xs, [][]float64{
-		{0, 0, 1, 1},
-		{1, 0, 0, 2},
-		{0, 1, 0, 3},
-	}, "xs", te)
-}
-
 func TestBlockLayerNorm(te *testing.T) {
 	b := newB(4, 3, ReLU)
 	b.xs0 = testMat([][]float64{

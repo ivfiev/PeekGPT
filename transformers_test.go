@@ -129,6 +129,35 @@ func TestIntegration(te *testing.T) {
 	assert("1")
 }
 
+func TestPointLoss(te *testing.T) {
+	t := newT(4, 7, 2, []rune("abc|?"))
+	t.rand(rand.New(rand.NewSource(7357)))
+	tr := newTraining(t)
+	p := func(r, c int) float64 {
+		d, _, cols, s := unmat(t.L)
+		sum := 0.0
+		for i := range cols {
+			sum += math.Exp(d[r*s+i])
+		}
+		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
+	}
+	actual := tr.pointLoss(t, []rune("bc|??=bc"))
+	expected := (p(3, 1) + p(4, 2)) / 2.0
+	if actual != expected {
+		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
+	}
+	actual = tr.pointLoss(t, []rune("cba|???=cba"))
+	expected = (p(4, 2) + p(5, 1) + p(6, 0)) / 3.0
+	if actual != expected {
+		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
+	}
+	actual = tr.pointLoss(t, []rune("a|??=a"))
+	expected = (p(2, 0)) / 1.0
+	if math.Abs(actual-expected) > 0.000000000001 {
+		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
+	}
+}
+
 func TestLayerNorm(te *testing.T) {
 	xs := testMat([][]float64{
 		{1, 0, 0, 1},

@@ -193,18 +193,23 @@ func TestSoftmax(te *testing.T) {
 }
 
 func TestLoadingXs(te *testing.T) {
-	t := newT(4, 3, 1, []rune("123"))
-	t.xs = testMat([][]float64{
-		{1, 0, 0, -0.5},
-		{0, 1, 0, 0.0},
-		{0, 0, 1, 0.5},
+	t := newT(4, 3, 1, []rune("abc"))
+	t.tokens = testMat([][]float64{
+		{1, 0, 0, 0},
+		{0, 1, 0, 0},
+		{0, 0, 1, 0},
 	})
-	t.run()
-	assertEq(t.blocks[0].xs0, [][]float64{
-		{1, 0, 0, -0.5},
-		{0, 1, 0, 0.0},
-		{0, 0, 1, 0.5},
-	}, "xs0", te)
+	t.positions = testMat([][]float64{
+		{0, 0, 0, 1},
+		{0, 0, 0, 2},
+		{0, 0, 0, 3},
+	})
+	t.loadXs([]rune("cab"))
+	assertEq(t.xs, [][]float64{
+		{0, 0, 1, 1},
+		{1, 0, 0, 2},
+		{0, 1, 0, 3},
+	}, "xs", te)
 }
 
 func TestBlockLayerNorm(te *testing.T) {
@@ -224,7 +229,7 @@ func TestBlockLayerNorm(te *testing.T) {
 	}, "xs1", te)
 }
 
-func TestBlockAttention(te *testing.T) {
+func TestBlocksE2E(te *testing.T) {
 	t := newT(4, 3, 2, []rune("abc"))
 	t.rand(rand.New(rand.NewSource(7357)))
 	t.xs = testMat([][]float64{
@@ -237,6 +242,7 @@ func TestBlockAttention(te *testing.T) {
 	t.run()
 
 	assertEq(t.blocks[0].xs0, t.xs, "0.xs0", te)
+
 	layerNorm(mat34, t.blocks[0].xs0, t.blocks[0].gamma1, t.blocks[0].beta1)
 	assertEq(mat34, t.blocks[0].xs1, "0.xs1", te)
 

@@ -55,7 +55,7 @@ func getVocab(data [][]rune) []rune {
 	for _, task := range data {
 		for _, tok := range task {
 			if tok == '=' {
-				break
+				continue
 			}
 			if slices.Index(vocab, tok) == -1 {
 				vocab = append(vocab, tok)

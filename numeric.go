@@ -149,6 +149,7 @@ func softmaxT(S, A matrix) {
 }
 
 func layerNorm(L, X matrix, gamma, beta vector) {
+	L.Zero()
 	dX, rX, cX, sX := unmat(X)
 	dL, rL, cL, sL := unmat(L)
 	rows := rX

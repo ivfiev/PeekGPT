@@ -12,9 +12,7 @@ func (t *transformer) printAttention() {
 			fmt.Printf("%c ", t.prompt[i])
 			for j := range t.prompt {
 				fg, bg := 0, 0
-				if j <= i { // TODO drop
-					fg = int(255 * b.S.At(i, j))
-				}
+				fg = int(255 * b.S.At(i, j))
 				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
 			}
 			println()
@@ -69,7 +67,7 @@ func (t *transformer) printHeatmap(xs []int) {
 	for _, x := range xs {
 		for i, b := range t.blocks {
 			As[0+i*5] = b.xs0
-			As[1+i*5] = b.SV
+			As[1+i*5] = b.P
 			As[2+i*5] = b.R1
 			As[3+i*5] = b.H
 			As[4+i*5] = b.R2

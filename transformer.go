@@ -25,7 +25,7 @@ type transformer struct {
 
 	// to-logit map parameters
 	linear matrix
-	bias   vector
+	bias2  vector
 
 	// logits
 	L matrix
@@ -44,6 +44,7 @@ type block struct {
 	keys    matrix
 	queries matrix
 	values  matrix
+	proj    matrix
 
 	// pre-MLP LayerNorm parameters
 	gamma2 vector
@@ -51,8 +52,10 @@ type block struct {
 
 	// MLP
 	input      matrix
+	bias0      vector
 	activation func(float64) float64
 	hidden     matrix
+	bias1      vector
 
 	// inputs
 	xs0 matrix
@@ -66,6 +69,7 @@ type block struct {
 	QK matrix
 	S  matrix
 	SV matrix
+	P  matrix
 
 	// residual values
 	R1 matrix
@@ -94,7 +98,7 @@ func newT(dModel, ctx, blocks int, vocab []rune) *transformer {
 	}
 
 	t.linear = makeMat(dModel, dVocab)
-	t.bias = make(vector, dVocab)
+	t.bias2 = make(vector, dVocab)
 	t.L = makeMat(ctx, dVocab)
 
 	t.ys = make([]int, ctx)
@@ -117,14 +121,17 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 	b.queries = makeMat(dModel, dModel)
 	b.keys = makeMat(dModel, dModel)
 	b.values = makeMat(dModel, dModel)
+	b.proj = makeMat(dModel, dModel)
 
 	b.gamma2 = make(vector, dModel)
 	b.beta2 = make(vector, dModel)
 	b.xs2 = makeMat(ctx, dModel)
 
 	b.input = makeMat(dModel, dModel)
+	b.bias0 = make(vector, dModel)
 	b.activation = activation
 	b.hidden = makeMat(dModel, dModel)
+	b.bias1 = make(vector, dModel)
 
 	b.K = makeMat(ctx, dModel)
 	b.Q = makeMat(ctx, dModel)
@@ -132,6 +139,7 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 	b.QK = makeMat(ctx, ctx)
 	b.S = makeMat(ctx, ctx)
 	b.SV = makeMat(ctx, dModel)
+	b.P = makeMat(ctx, dModel)
 	b.R1 = makeMat(ctx, dModel)
 	b.R2 = makeMat(ctx, dModel)
 	b.I = makeMat(ctx, dModel)
@@ -149,7 +157,7 @@ func (t *transformer) run() {
 		xs = b.R2
 	}
 	mulMat(t.L, xs, t.linear)
-	addMatV(t.L, t.bias)
+	addMatV(t.L, t.bias2)
 }
 
 func (b *block) run() {
@@ -163,13 +171,16 @@ func (b *block) run() {
 	mulMatK(b.QK, d)
 	softmaxT(b.S, b.QK)
 	mulMat(b.SV, b.S, b.V)
-	addMatM(b.R1, b.xs0, b.SV)
+	mulMat(b.P, b.SV, b.proj)
+	addMatM(b.R1, b.xs0, b.P)
 
 	// mlp
 	layerNorm(b.xs2, b.R1, b.gamma2, b.beta2)
 	mulMat(b.I, b.xs2, b.input)
+	addMatV(b.I, b.bias0)
 	mapMat(b.A, b.I, b.activation)
 	mulMat(b.H, b.A, b.hidden)
+	addMatV(b.H, b.bias1)
 	addMatM(b.R2, b.R1, b.H)
 }
 
@@ -203,7 +214,7 @@ func (t *transformer) size() int {
 		len(t.tokens.RawMatrix().Data) +
 		len(t.positions.RawMatrix().Data) +
 		len(t.linear.RawMatrix().Data) +
-		len(t.bias)
+		len(t.bias2)
 }
 
 func (b *block) size() int {
@@ -212,8 +223,11 @@ func (b *block) size() int {
 		len(b.queries.RawMatrix().Data) +
 		len(b.keys.RawMatrix().Data) +
 		len(b.values.RawMatrix().Data) +
+		len(b.proj.RawMatrix().Data) +
 		len(b.input.RawMatrix().Data) +
-		len(b.hidden.RawMatrix().Data)
+		len(b.bias0) +
+		len(b.hidden.RawMatrix().Data) +
+		len(b.bias1)
 }
 
 func (t *transformer) loadXs(prompt []rune) {
@@ -331,12 +345,19 @@ func (t *transformer) rand(rng *rand.Rand) {
 		mat(b.keys, 0.2)
 		mat(b.queries, 0.2)
 		mat(b.values, 0.2)
+		mat(b.proj, 0.2)
 		mat(b.input, 0.2)
 		mat(b.hidden, 0.2)
+		for i := range b.bias0 {
+			b.bias0[i] = 0
+		}
+		for i := range b.bias1 {
+			b.bias1[i] = 0
+		}
 	}
 	mat(t.linear, 0.2)
-	for i := range t.bias {
-		t.bias[i] = 0
+	for i := range t.bias2 {
+		t.bias2[i] = 0
 	}
 }
 
@@ -361,11 +382,14 @@ func (t *transformer) apply(theta vector) {
 		mat(b.keys)
 		mat(b.queries)
 		mat(b.values)
+		mat(b.proj)
 		mat(b.input)
+		vec(b.bias0)
 		mat(b.hidden)
+		vec(b.bias1)
 	}
 	mat(t.linear)
-	vec(t.bias)
+	vec(t.bias2)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}
@@ -392,11 +416,14 @@ func (t *transformer) dump(theta vector) {
 		mat(b.keys)
 		mat(b.queries)
 		mat(b.values)
+		mat(b.proj)
 		mat(b.input)
+		vec(b.bias0)
 		mat(b.hidden)
+		vec(b.bias1)
 	}
 	mat(t.linear)
-	vec(t.bias)
+	vec(t.bias2)
 	if T != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}

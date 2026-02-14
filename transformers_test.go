@@ -209,6 +209,21 @@ func TestBlockLayerNorm(te *testing.T) {
 	}, "xs1", te)
 }
 
+func TestAddMatV(te *testing.T) {
+	A := testMat([][]float64{
+		{0, 1, 2, 0},
+		{3, 4, 5, 0},
+		{6, 7, 8, 9},
+	})
+	x := vector{1.1, 1.2, 1.3, 1.4}
+	addMatV(A, x)
+	assertEq(A, [][]float64{
+		{1.1, 2.2, 3.3, 1.4},
+		{4.1, 5.2, 6.3, 1.4},
+		{7.1, 8.2, 9.3, 10.4},
+	}, "addMatV", te)
+}
+
 func TestBlocksE2E(te *testing.T) {
 	t := newT(4, 3, 2, []rune("abc"))
 	t.rand(rand.New(rand.NewSource(7357)))
@@ -217,6 +232,9 @@ func TestBlocksE2E(te *testing.T) {
 		{-0.6, 0.1, 0.2, 0.6},
 		{2, 1, 0, -1},
 	})
+	t.bias2 = vector{1, 2, 3}
+	t.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4}
+	t.blocks[0].bias1 = vector{-0.1, -0.2, 0.3, 0.4}
 	mat34 := makeMat(3, 4)
 	mat33 := makeMat(3, 3)
 	t.run()
@@ -245,8 +263,11 @@ func TestBlocksE2E(te *testing.T) {
 	mulMat(mat34, t.blocks[0].S, t.blocks[0].V)
 	assertEq(mat34, t.blocks[0].SV, "0.SV", te)
 
+	mulMat(mat34, t.blocks[0].SV, t.blocks[0].proj)
+	assertEq(mat34, t.blocks[0].P, "0.P", te)
+
 	mat34.Zero()
-	addMatM(mat34, t.blocks[0].xs0, t.blocks[0].SV)
+	addMatM(mat34, t.blocks[0].xs0, t.blocks[0].P)
 	assertEq(mat34, t.blocks[0].R1, "0.R1", te)
 
 	mat34.Zero()
@@ -254,12 +275,14 @@ func TestBlocksE2E(te *testing.T) {
 	assertEq(mat34, t.blocks[0].xs2, "0.xs2", te)
 
 	mulMat(mat34, t.blocks[0].xs2, t.blocks[0].input)
+	addMatV(mat34, t.blocks[0].bias0)
 	assertEq(mat34, t.blocks[0].I, "0.I", te)
 
 	mapMat(mat34, t.blocks[0].I, ReLU)
 	assertEq(mat34, t.blocks[0].A, "0.A", te)
 
 	mulMat(mat34, t.blocks[0].A, t.blocks[0].hidden)
+	addMatV(mat34, t.blocks[0].bias1)
 	assertEq(mat34, t.blocks[0].H, "0.H", te)
 
 	addMatM(mat34, t.blocks[0].H, t.blocks[0].R1)
@@ -268,6 +291,7 @@ func TestBlocksE2E(te *testing.T) {
 	assertEq(t.blocks[1].xs0, t.blocks[0].R2, "1.xs0", te)
 
 	mulMat(mat33, t.blocks[1].R2, t.linear)
+	addMatV(mat33, t.bias2)
 	assertEq(t.L, mat33, "t.L", te)
 
 	d, _, _, _ := unmat(t.L)
@@ -296,7 +320,7 @@ func TestHeatmaps(te *testing.T) {
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].SV = testMat([][]float64{
+	t.blocks[0].P = testMat([][]float64{
 		{1, 0, 0, 1},
 		{-1, 1, 1, 0},
 		{0, 0, 1, 3},
@@ -318,7 +342,7 @@ func TestHeatmaps(te *testing.T) {
 	})
 	heatmaps := t.calcHeatmap(1, []matrix{
 		t.blocks[0].xs0,
-		t.blocks[0].SV,
+		t.blocks[0].P,
 		t.blocks[0].R1,
 		t.blocks[0].H,
 		t.blocks[0].R2,
@@ -424,13 +448,16 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.keys, func(f float64) bool { return f != 0 })
 		assert(b.queries, func(f float64) bool { return f != 0 })
 		assert(b.values, func(f float64) bool { return f != 0 })
+		assert(b.proj, func(f float64) bool { return f != 0 })
 		assert(b.gamma2, func(f float64) bool { return f == 1 })
 		assert(b.beta2, func(f float64) bool { return f == 0 })
 		assert(b.input, func(f float64) bool { return f != 0 })
+		assert(b.bias0, func(f float64) bool { return f == 0 })
 		assert(b.hidden, func(f float64) bool { return f != 0 })
+		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
 	assert(t.linear, func(f float64) bool { return f != 0 })
-	assert(t.bias, func(f float64) bool { return f == 0 })
+	assert(t.bias2, func(f float64) bool { return f == 0 })
 
 	theta := make(vector, t.size())
 	for i := range theta {
@@ -445,13 +472,16 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.keys, func(f float64) bool { return f == 7357 })
 		assert(b.queries, func(f float64) bool { return f == 7357 })
 		assert(b.values, func(f float64) bool { return f == 7357 })
+		assert(b.proj, func(f float64) bool { return f == 7357 })
 		assert(b.gamma2, func(f float64) bool { return f == 7357 })
 		assert(b.beta2, func(f float64) bool { return f == 7357 })
 		assert(b.input, func(f float64) bool { return f == 7357 })
+		assert(b.bias0, func(f float64) bool { return f == 7357 })
 		assert(b.hidden, func(f float64) bool { return f == 7357 })
+		assert(b.bias1, func(f float64) bool { return f == 7357 })
 	}
 	assert(t.linear, func(f float64) bool { return f == 7357 })
-	assert(t.bias, func(f float64) bool { return f == 7357 })
+	assert(t.bias2, func(f float64) bool { return f == 7357 })
 
 	for i := range theta {
 		theta[i] = 0
@@ -459,4 +489,19 @@ func TestMatrixInit(te *testing.T) {
 	assert(theta, func(f float64) bool { return f == 0 })
 	t.dump(theta)
 	assert(theta, func(f float64) bool { return f == 7357 })
+
+	theta1 := make(vector, t.size())
+	theta2 := make(vector, t.size())
+	t.rand(rand.New(rand.NewSource(7737)))
+	t.bias2 = vector{1, 1, 1}
+	t.blocks[0].bias0 = vector{2, 2, 2, 2}
+	t.blocks[0].bias1 = vector{3, 3, 3, 3}
+	t.dump(theta1)
+	t.apply(theta1)
+	t.dump(theta2)
+	for i := range theta1 {
+		if theta1[i] != theta2[i] {
+			te.Fatalf("apply != dump, %f != %f\n", theta1[i], theta2[i])
+		}
+	}
 }

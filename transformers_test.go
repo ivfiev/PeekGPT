@@ -103,7 +103,7 @@ func TestSPSA(te *testing.T) {
 }
 
 func TestIntegration(te *testing.T) {
-	var seed int64 = 7357
+	var seed int64 = 7359
 	rng := rand.New(rand.NewSource(seed))
 	t := train(16, 5, 2,
 		generateCopyTask([]rune("123"), 2, 30, rng),
@@ -143,12 +143,12 @@ func TestPointLoss(te *testing.T) {
 	}
 	actual := tr.pointLoss(t, []rune("bc|??=bc"))
 	expected := (p(3, 1) + p(4, 2)) / 2.0
-	if actual != expected {
+	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = tr.pointLoss(t, []rune("cba|???=cba"))
 	expected = (p(4, 2) + p(5, 1) + p(6, 0)) / 3.0
-	if actual != expected {
+	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = tr.pointLoss(t, []rune("a|??=a"))

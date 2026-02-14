@@ -313,8 +313,8 @@ func (t *transformer) rand(rng *rand.Rand) {
 			}
 		}
 	}
-	mat(t.tokens, 0.25)
-	mat(t.positions, 0.25)
+	mat(t.tokens, 0.2)
+	mat(t.positions, 0.2)
 	for _, b := range t.blocks {
 		for i := range b.gamma1 {
 			b.gamma1[i] = 1
@@ -328,13 +328,13 @@ func (t *transformer) rand(rng *rand.Rand) {
 		for i := range b.beta2 {
 			b.beta2[i] = 0
 		}
-		mat(b.keys, 0.5)
-		mat(b.queries, 0.5)
-		mat(b.values, 0.5)
-		mat(b.input, 0.25)
-		mat(b.hidden, 0.25)
+		mat(b.keys, 0.2)
+		mat(b.queries, 0.2)
+		mat(b.values, 0.2)
+		mat(b.input, 0.2)
+		mat(b.hidden, 0.2)
 	}
-	mat(t.linear, 0.25)
+	mat(t.linear, 0.2)
 	for i := range t.bias {
 		t.bias[i] = 0
 	}

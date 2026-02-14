@@ -278,48 +278,61 @@ func TestBlocksE2E(te *testing.T) {
 	}
 }
 
-// func TestHeatmaps(te *testing.T) {
-// 	t := newT(3, 3, 3, ReLU)
-// 	t.xs = testMat([][]float64{
-// 		{0, 0, 0},
-// 		{0, 1, 0},
-// 		{0, 0, 0},
-// 	})
-// 	t.V = testMat([][]float64{
-// 		{0, 0, 0},
-// 		{2, -1, 3},
-// 		{0, 0, 0},
-// 	})
-// 	t.R1 = testMat([][]float64{
-// 		{0, 0, 0},
-// 		{-1, 1.5, 0.5},
-// 		{0, 0, 0},
-// 	})
-// 	t.H = testMat([][]float64{
-// 		{0, 0, 0},
-// 		{-1, 4, 2},
-// 		{0, 0, 0},
-// 	})
-// 	t.R2 = testMat([][]float64{
-// 		{0, 0, 0},
-// 		{1, -1, -0.5},
-// 		{0, 0, 0},
-// 	})
-// 	t.linear = testMat([][]float64{
-// 		{0, 1, 0},
-// 		{0, 1, 0},
-// 		{0, 1, 0},
-// 	})
-// 	t.printHeatmap(1, 1)
-// 	// printMat(t.heatmap)
-// 	assertEq(testMat(t.heatmap), [][]float64{
-// 		{0.000, 0.200, 0.000},
-// 		{0.400, -0.200, 0.600},
-// 		{-0.200, 0.300, 0.100},
-// 		{-0.200, 0.800, 0.400},
-// 		{0.200, -0.200, -0.100},
-// 	}, "heatmap", te)
-// }
+func TestHeatmaps(te *testing.T) {
+	t := newT(4, 3, 1, []rune("abc"))
+	t.linear = testMat([][]float64{
+		{1, 1, 1},
+		{1, 1, -1},
+		{1, 1, -1},
+		{1, 1, 2},
+	})
+	t.L = testMat([][]float64{
+		{-1, -1, -1},
+		{-1, -1, 1},
+		{-1, -1, -1},
+	})
+	t.blocks[0].xs0 = testMat([][]float64{
+		{1, 0, 0, 1},
+		{0, 1, 0, 2},
+		{0, 0, 1, 3},
+	})
+	t.blocks[0].SV = testMat([][]float64{
+		{1, 0, 0, 1},
+		{-1, 1, 1, 0},
+		{0, 0, 1, 3},
+	})
+	t.blocks[0].R1 = testMat([][]float64{
+		{1, 0, 0, 1},
+		{0, 1, 1, 0},
+		{0, 0, 1, 3},
+	})
+	t.blocks[0].H = testMat([][]float64{
+		{1, 0, 0, 1},
+		{0, 1, 0, 2},
+		{0, 0, 1, 3},
+	})
+	t.blocks[0].R2 = testMat([][]float64{
+		{1, 0, 0, 1},
+		{0, 1, 0, 2},
+		{0, 0, 1, 3},
+	})
+	heatmaps := t.calcHeatmap(1, []matrix{
+		t.blocks[0].xs0,
+		t.blocks[0].SV,
+		t.blocks[0].R1,
+		t.blocks[0].H,
+		t.blocks[0].R2,
+	})
+	t.prompt = []rune("abc")
+	t.printHeatmap([]int{1})
+	assertEq(testMat(heatmaps), [][]float64{
+		{0, -0.2, 0, 0.8},
+		{-0.2, -0.2, -0.2, 0},
+		{0, -0.2, -0.2, 0},
+		{0, -0.2, 0, 0.8},
+		{0, -0.2, 0, 0.8},
+	}, "heatmaps", te)
+}
 
 func TestLoss(te *testing.T) {
 	t := newT(4, 4, 1, []rune("abcd"))

@@ -32,9 +32,6 @@ type transformer struct {
 
 	// vocabulary
 	vocab []rune
-
-	// graphical output
-	heatmap []vector
 }
 
 type block struct {
@@ -291,241 +288,21 @@ func (t *transformer) solve(ctx []rune) {
 	d, _, c, s := unmat(t.L)
 	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)
-	fmt.Println(string(t.vocab))
+	// fmt.Println(string(t.vocab))
+	xs := []int{}
 	for ; i < len(ctx); i++ {
-		printVec(d[i*s : i*s+c])
+		// printVec(d[i*s : i*s+c])
 		_, j := rowMax(d[i*s : i*s+c])
 		prediction = append(prediction, t.vocab[j])
+		xs = append(xs, i)
 	}
-	fmt.Println(string(prediction))
+	println()
+	t.printHeatmap(xs)
 	println()
 	t.printAttention()
 	println()
+	fmt.Printf("Input: [%s]\nPrediction: [%s]\n\n", string(ctx), string(prediction))
 }
-
-func (t *transformer) peek(ctx []rune) {
-	// mulMatK(t.xs, 0)
-	// mulMatK(t.xs1, 0)
-	// mulMatK(t.xs2, 0)
-	// mulMatK(t.S, 0)
-	// mulMatK(t.QK, 0)
-	// mulMatK(t.K, 0)
-	// mulMatK(t.Q, 0)
-	// mulMatK(t.V, 0)
-	// mulMatK(t.I, 0)
-	// mulMatK(t.H, 0)
-	// t.loadXs(ctx)
-	// t.run()
-	// println()
-	// fmt.Println("Full breakdown:")
-	// fmt.Println("Input embeddings (xs)")
-	// printMat(t.xs)
-	// println()
-	// fmt.Println("First LayerNorm Gamma & Beta:")
-	// printVec(t.gamma1)
-	// printVec(t.beta1)
-	// println()
-	// fmt.Println("Queries")
-	// printMat(t.queries)
-	// println()
-	// fmt.Println("Q (xs * queries)")
-	// printMat(t.Q)
-	// println()
-	// fmt.Println("Keys")
-	// printMat(t.keys)
-	// println()
-	// fmt.Println("K (xs * keys)")
-	// printMat(t.K)
-	// println()
-	// fmt.Println("QK")
-	// printMat(t.QK)
-	// println()
-	// fmt.Println("S (triangular softmax QK)")
-	// printMat(t.S)
-	// println()
-	// fmt.Println("Values")
-	// printMat(t.values)
-	// println()
-	// fmt.Println("V (softmax * values)")
-	// printMat(t.V)
-	// println()
-	// fmt.Println("Second LayerNorm Gamma & Beta:")
-	// printVec(t.gamma2)
-	// printVec(t.beta2)
-	// println()
-	// fmt.Println("MLP Input layer")
-	// printMat(t.input)
-	// println()
-	// fmt.Println("MLP Hidden layer")
-	// printMat(t.hidden)
-	// println()
-	// fmt.Println("Linear")
-	// printMat(t.linear)
-	// println()
-	// fmt.Println("Bias")
-	// printVec(t.bias)
-	// println()
-	// fmt.Println("Logits (V * Linear + Bias)")
-	// printMat(t.L)
-	// println()
-	// fmt.Println("--------------------------------------")
-	// fmt.Println("Detailed breakdown for the last token:")
-	// lastIx := len(ctx) - 1
-	// fmt.Println("Last token's embedding:")
-	// printRow(t.xs, lastIx)
-	// println()
-	// fmt.Println("After first LayerNorm:")
-	// printRow(t.xs1, lastIx)
-	// println()
-	// fmt.Println("Token's Query:")
-	// printRow(t.Q, lastIx)
-	// println()
-	// fmt.Println("Available Keys:")
-	// printMat(t.K)
-	// println()
-	// fmt.Println("Raw scores against Keys (QKT):")
-	// printRow(t.QK, lastIx)
-	// println()
-	// fmt.Println("Normalized Softmax scores:")
-	// printRow(t.S, lastIx)
-	// println()
-	// fmt.Println("Dot product with Value rows:")
-	// printMat(t.values)
-	// println()
-	// fmt.Println("To get the final Value:")
-	// printRow(t.V, lastIx)
-	// println()
-	// fmt.Println("Residual stream:")
-	// printRow(t.xs, lastIx)
-	// println("+")
-	// printRow(t.V, lastIx)
-	// println("=")
-	// printRow(t.R1, lastIx)
-	// println()
-	// fmt.Println("After second LayerNorm:")
-	// printRow(t.xs2, lastIx)
-	// println()
-	// fmt.Println("Pass through Input layer:")
-	// printRow(t.I, lastIx)
-	// println()
-	// fmt.Println("Activation:")
-	// printRow(t.A, lastIx)
-	// println()
-	// fmt.Println("Pass through Hidden layer:")
-	// printRow(t.H, lastIx)
-	// println()
-	// fmt.Println("Residual stream:")
-	// printRow(t.R1, lastIx)
-	// println("+")
-	// printRow(t.H, lastIx)
-	// println("=")
-	// printRow(t.R2, lastIx)
-	// println()
-	// fmt.Println("Dot product with Linear layer rows:")
-	// printMat(t.linear)
-	// println()
-	// fmt.Println("And add Bias:")
-	// printVec(t.bias)
-	// println()
-	// fmt.Println("To get the final Logits:")
-	// printRow(t.L, lastIx)
-	// println()
-	// fmt.Printf("Input: [%s]\n", string(ctx))
-	// fmt.Println("Next token probabilities:")
-	// d, _, c, s := unmat(t.L)
-	// rm, rmix := rowMax(d[lastIx*s : lastIx*s+c])
-	// sum := 0.0
-	// for i := range c {
-	// 	x := d[lastIx*s+i]
-	// 	sum += math.Exp(x - rm)
-	// }
-	// for i := range c {
-	// 	x := d[lastIx*s+i]
-	// 	fmt.Printf("[%c] -> %.6f\n", t.vocab[i], math.Exp(x-rm)/sum)
-	// }
-	// println()
-	// println()
-	// t.printAttention()
-	// println()
-	// println()
-	// t.printHeatmap(lastIx, rmix)
-	// println()
-}
-
-func (t *transformer) printAttention() {
-	for bi, b := range t.blocks {
-		for i := range t.prompt {
-			fmt.Printf("%c ", t.prompt[i])
-			for j := range t.prompt {
-				fg, bg := 0, 0
-				if j <= i {
-					fg = int(255 * b.S.At(i, j))
-				}
-				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
-			}
-			println()
-		}
-		fmt.Printf("   ")
-		for _, c := range t.prompt {
-			fmt.Printf("%c  ", c)
-		}
-		println()
-		if bi < len(t.blocks)-1 {
-			println()
-		}
-	}
-}
-
-// func (t *transformer) printHeatmap(lastIx, rmix int) {
-// 	t.heatmap = nil
-// 	lin := make(vector, t.linear.RawMatrix().Rows)
-// 	for i := range lin {
-// 		lin[i] = t.linear.At(i, rmix)
-// 	}
-// 	maxProd := math.Inf(-1)
-// 	minProd := math.Inf(1)
-// 	for i := range lin {
-// 		prods := vector{
-// 			t.R2.At(lastIx, i) * lin[i],
-// 			t.R1.At(lastIx, i) * lin[i],
-// 			t.xs.At(lastIx, i) * lin[i],
-// 			t.V.At(lastIx, i) * lin[i],
-// 			t.H.At(lastIx, i) * lin[i],
-// 		}
-// 		maxProd = max(maxProd, slices.Max(prods))
-// 		minProd = min(minProd, slices.Min(prods))
-// 	}
-// 	printHeatmap := func(xs matrix) {
-// 		rgb := make(vector, t.dModel) // len(lin)
-// 		for i := range lin {
-// 			red, blue, bg := 0, 0, 0
-// 			prod := xs.At(lastIx, i) * lin[i]
-// 			if prod > 0 {
-// 				rgb[i] = prod / (maxProd - minProd)
-// 				red = int(rgb[i] * 255)
-// 			} else {
-// 				rgb[i] = prod / (maxProd - minProd)
-// 				blue = int(-rgb[i] * 255)
-// 			}
-// 			fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm██\x1b[0m", red, 0, blue, bg, bg, bg)
-// 		}
-// 		t.heatmap = append(t.heatmap, rgb)
-// 	}
-// 	printHeatmap(t.xs)
-// 	println("  Original")
-// 	println()
-// 	printHeatmap(t.V)
-// 	println("  Attention Δ")
-// 	println()
-// 	printHeatmap(t.R1)
-// 	println("  Post-attention")
-// 	println()
-// 	printHeatmap(t.H)
-// 	println("  MLP Δ")
-// 	println()
-// 	printHeatmap(t.R2)
-// 	println("  Post-MLP")
-// }
 
 func (t *transformer) rand(rng *rand.Rand) {
 	mat := func(m matrix, scale float64) {

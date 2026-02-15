@@ -70,6 +70,8 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 
 type testquad struct {
 	minimum vector
+	us      vector
+	vs      vector
 }
 
 func (q *testquad) eval(theta vector) float64 {
@@ -80,13 +82,21 @@ func (q *testquad) eval(theta vector) float64 {
 	return sum
 }
 
-func (q *testquad) eval2(u, v vector, i int) (float64, float64) {
-	return q.eval(u), q.eval(v)
+func (q *testquad) eval2(us, vs []vector, i int) (vector, vector) {
+	for i := range us {
+		q.us[i] = q.eval(us[i])
+		q.vs[i] = q.eval(vs[i])
+	}
+	return q.us, q.vs
 }
 
 func TestSPSA(te *testing.T) {
 	const size = 100
-	t := testquad{minimum: make(vector, size)}
+	t := testquad{
+		minimum: make(vector, size),
+		us:      make(vector, 9),
+		vs:      make(vector, 9),
+	}
 	theta := make(vector, size)
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
@@ -94,7 +104,7 @@ func TestSPSA(te *testing.T) {
 		t.minimum[i] = rng.Float64() * 10
 		theta[i] = -rng.Float64() * 10
 	}
-	spsa(&t, theta, 2000, 0.005, 0.0001, rng)
+	spsa(&t, theta, 4, 2000, 0.005, 0.0001, seed)
 	loss := t.eval(theta)
 	if loss > 0.001 {
 		fmt.Printf("SPSA loss: %f, seed: %d\n", loss, seed)
@@ -108,7 +118,7 @@ func TestIntegration(te *testing.T) {
 	t := train(16, 5, 2,
 		generateCopyTask([]rune("123"), 2, 30, rng),
 		generateCopyTask([]rune("123"), 2, 10, rng),
-		5000, 8, 4, 0.001, 0.00001, seed)
+		4, 1000, 8, 4, 0.01, 0.00001, seed)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := t.predict(ctx)

@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sync"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -15,7 +16,7 @@ type (
 )
 
 type objective interface {
-	eval2(vector, vector, int) (float64, float64)
+	eval2([]vector, []vector, int) (vector, vector)
 }
 
 func makeMat(r, c int) matrix {
@@ -219,16 +220,31 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsa(obj objective, theta vector, iters int, lr, eps float64, rng *rand.Rand) {
-	ones := make(vector, len(theta))
-	dPlus := make(vector, len(theta))
-	dMinus := make(vector, len(theta))
+func spsa(obj objective, theta vector, samples, iters int, lr, eps float64, seed int64) {
+	ones := make([]vector, samples)
+	dPlus := make([]vector, samples)
+	dMinus := make([]vector, samples)
+	rngs := make([]*rand.Rand, samples)
+	var wg sync.WaitGroup
+	for i := range samples {
+		ones[i] = make(vector, len(theta))
+		dPlus[i] = make(vector, len(theta))
+		dMinus[i] = make(vector, len(theta))
+		rngs[i] = rand.New(rand.NewSource(seed + int64((i+1)*1000)))
+	}
 	for iter := range iters {
-		rademacher(ones, rng)
-		addVec3(dPlus, theta, ones, eps)
-		addVec3(dMinus, theta, ones, -eps)
+		for i := range samples {
+			wg.Go(func() {
+				rademacher(ones[i], rngs[i])
+				addVec3(dPlus[i], theta, ones[i], eps)
+				addVec3(dMinus[i], theta, ones[i], -eps)
+			})
+		}
+		wg.Wait()
 		plus, minus := obj.eval2(dPlus, dMinus, iter)
-		d := (plus - minus) / (2 * eps)
-		addVec2(theta, ones, -d*lr)
+		for i := range samples {
+			d := (plus[i] - minus[i]) / (2 * eps)
+			addVec2(theta, ones[i], -d*lr/float64(samples))
+		}
 	}
 }

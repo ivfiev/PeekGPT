@@ -66,11 +66,11 @@ func (t *transformer) printHeatmap(xs []int) {
 	As := make([]matrix, 5*len(t.blocks))
 	for _, x := range xs {
 		for i, b := range t.blocks {
-			As[0+i*5] = b.xs0
+			As[0+i*5] = b.XS0
 			As[1+i*5] = b.P
-			As[2+i*5] = b.R1
+			As[2+i*5] = b.R0
 			As[3+i*5] = b.H
-			As[4+i*5] = b.R2
+			As[4+i*5] = b.R1
 		}
 		heatmaps = append(heatmaps, t.calcHeatmap(x, As))
 	}

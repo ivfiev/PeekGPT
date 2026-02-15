@@ -9,17 +9,17 @@ import (
 )
 
 type transformer struct {
-	context int
 	dModel  int
+	context int
 	dVocab  int
 
+	vocab     []rune // vocabulary
 	tokens    matrix // token embeddings
 	positions matrix // position embeddings
 
-	// prompts/inputs
 	prompt []rune
-	xs     matrix
-	ys     []int // outputs, used for loss
+	XS     matrix // inputs
+	ys     []int  // outputs, used for loss
 
 	blocks []*block
 
@@ -29,16 +29,13 @@ type transformer struct {
 
 	// logits
 	L matrix
-
-	// vocabulary
-	vocab []rune
 }
 
 type block struct {
 	dModel int
 	// pre-attention LayerNorm parameters
-	gamma1 vector
-	beta1  vector
+	gamma0 vector
+	beta0  vector
 
 	// attention parameters
 	keys    matrix
@@ -47,8 +44,8 @@ type block struct {
 	proj    matrix
 
 	// pre-MLP LayerNorm parameters
-	gamma2 vector
-	beta2  vector
+	gamma1 vector
+	beta1  vector
 
 	// MLP
 	input      matrix
@@ -58,9 +55,9 @@ type block struct {
 	bias1      vector
 
 	// inputs
-	xs0 matrix
-	xs1 matrix
-	xs2 matrix
+	XS0 matrix
+	XS1 matrix
+	XS2 matrix
 
 	// attention values
 	K  matrix
@@ -72,8 +69,8 @@ type block struct {
 	P  matrix
 
 	// residual values
+	R0 matrix
 	R1 matrix
-	R2 matrix
 
 	// MLP intermediary states
 	I matrix
@@ -90,7 +87,7 @@ func newT(dModel, ctx, blocks int, vocab []rune) *transformer {
 	}
 	t.tokens = makeMat(dVocab, dModel)
 	t.positions = makeMat(ctx, dModel)
-	t.xs = makeMat(ctx, dModel)
+	t.XS = makeMat(ctx, dModel)
 
 	t.blocks = make([]*block, blocks)
 	for i := range blocks {
@@ -112,20 +109,20 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 		dModel: dModel,
 	}
 
-	b.xs0 = makeMat(ctx, dModel)
+	b.XS0 = makeMat(ctx, dModel)
 
-	b.gamma1 = make(vector, dModel)
-	b.beta1 = make(vector, dModel)
-	b.xs1 = makeMat(ctx, dModel)
+	b.gamma0 = make(vector, dModel)
+	b.beta0 = make(vector, dModel)
+	b.XS1 = makeMat(ctx, dModel)
 
 	b.queries = makeMat(dModel, dModel)
 	b.keys = makeMat(dModel, dModel)
 	b.values = makeMat(dModel, dModel)
 	b.proj = makeMat(dModel, dModel)
 
-	b.gamma2 = make(vector, dModel)
-	b.beta2 = make(vector, dModel)
-	b.xs2 = makeMat(ctx, dModel)
+	b.gamma1 = make(vector, dModel)
+	b.beta1 = make(vector, dModel)
+	b.XS2 = makeMat(ctx, dModel)
 
 	b.input = makeMat(dModel, dModel)
 	b.bias0 = make(vector, dModel)
@@ -140,8 +137,8 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 	b.S = makeMat(ctx, ctx)
 	b.SV = makeMat(ctx, dModel)
 	b.P = makeMat(ctx, dModel)
+	b.R0 = makeMat(ctx, dModel)
 	b.R1 = makeMat(ctx, dModel)
-	b.R2 = makeMat(ctx, dModel)
 	b.I = makeMat(ctx, dModel)
 	b.A = makeMat(ctx, dModel)
 	b.H = makeMat(ctx, dModel)
@@ -150,11 +147,11 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 }
 
 func (t *transformer) run() {
-	xs := t.xs
+	xs := t.XS
 	for _, b := range t.blocks {
 		b.loadXs(xs)
 		b.run()
-		xs = b.R2
+		xs = b.R1
 	}
 	mulMat(t.L, xs, t.linear)
 	addMatV(t.L, t.bias2)
@@ -162,26 +159,26 @@ func (t *transformer) run() {
 
 func (b *block) run() {
 	// attention
-	layerNorm(b.xs1, b.xs0, b.gamma1, b.beta1)
-	mulMat(b.Q, b.xs1, b.queries)
-	mulMat(b.K, b.xs1, b.keys)
-	mulMat(b.V, b.xs1, b.values)
+	layerNorm(b.XS1, b.XS0, b.gamma0, b.beta0)
+	mulMat(b.Q, b.XS1, b.queries)
+	mulMat(b.K, b.XS1, b.keys)
+	mulMat(b.V, b.XS1, b.values)
 	mulMatT(b.QK, b.Q, b.K)
 	d := 1 / math.Sqrt(float64(b.dModel))
 	mulMatK(b.QK, d)
 	softmaxT(b.S, b.QK)
 	mulMat(b.SV, b.S, b.V)
 	mulMat(b.P, b.SV, b.proj)
-	addMatM(b.R1, b.xs0, b.P)
+	addMatM(b.R0, b.XS0, b.P)
 
 	// mlp
-	layerNorm(b.xs2, b.R1, b.gamma2, b.beta2)
-	mulMat(b.I, b.xs2, b.input)
+	layerNorm(b.XS2, b.R0, b.gamma1, b.beta1)
+	mulMat(b.I, b.XS2, b.input)
 	addMatV(b.I, b.bias0)
 	mapMat(b.A, b.I, b.activation)
 	mulMat(b.H, b.A, b.hidden)
 	addMatV(b.H, b.bias1)
-	addMatM(b.R2, b.R1, b.H)
+	addMatM(b.R1, b.R0, b.H)
 }
 
 func (t *transformer) loss() float64 {
@@ -218,8 +215,8 @@ func (t *transformer) size() int {
 }
 
 func (b *block) size() int {
-	return len(b.gamma1) + len(b.beta1) +
-		len(b.gamma2) + len(b.beta2) +
+	return len(b.gamma0) + len(b.beta0) +
+		len(b.gamma1) + len(b.beta1) +
 		len(b.queries.RawMatrix().Data) +
 		len(b.keys.RawMatrix().Data) +
 		len(b.values.RawMatrix().Data) +
@@ -234,13 +231,13 @@ func (t *transformer) loadXs(prompt []rune) {
 	if len(prompt) > t.context {
 		log.Fatal("too long xs")
 	}
-	t.xs.Zero()
+	t.XS.Zero()
 	for _, b := range t.blocks {
-		b.xs0.Zero()
-		b.xs1.Zero()
-		b.xs2.Zero()
+		b.XS0.Zero()
+		b.XS1.Zero()
+		b.XS2.Zero()
 	}
-	dx, _, _, sx := unmat(t.xs)
+	dx, _, _, sx := unmat(t.XS)
 	dt, _, _, st := unmat(t.tokens)
 	dp, _, _, sp := unmat(t.positions)
 	for posIx := range prompt {
@@ -257,7 +254,7 @@ func (t *transformer) loadXs(prompt []rune) {
 
 func (b *block) loadXs(xs matrix) {
 	dxs, rxs, cxs, _ := unmat(xs)
-	dxs0, rxs0, cxs0, _ := unmat(b.xs0)
+	dxs0, rxs0, cxs0, _ := unmat(b.XS0)
 	if rxs != rxs0 || cxs != cxs0 {
 		log.Panic("Incompatible XS")
 	}
@@ -330,17 +327,17 @@ func (t *transformer) rand(rng *rand.Rand) {
 	mat(t.tokens, 0.2)
 	mat(t.positions, 0.2)
 	for _, b := range t.blocks {
+		for i := range b.gamma0 {
+			b.gamma0[i] = 1
+		}
+		for i := range b.beta0 {
+			b.beta0[i] = 0
+		}
 		for i := range b.gamma1 {
 			b.gamma1[i] = 1
 		}
 		for i := range b.beta1 {
 			b.beta1[i] = 0
-		}
-		for i := range b.gamma2 {
-			b.gamma2[i] = 1
-		}
-		for i := range b.beta2 {
-			b.beta2[i] = 0
 		}
 		mat(b.keys, 0.2)
 		mat(b.queries, 0.2)
@@ -375,10 +372,10 @@ func (t *transformer) apply(theta vector) {
 	mat(t.tokens)
 	mat(t.positions)
 	for _, b := range t.blocks {
+		vec(b.gamma0)
+		vec(b.beta0)
 		vec(b.gamma1)
 		vec(b.beta1)
-		vec(b.gamma2)
-		vec(b.beta2)
 		mat(b.keys)
 		mat(b.queries)
 		mat(b.values)
@@ -409,10 +406,10 @@ func (t *transformer) dump(theta vector) {
 	mat(t.tokens)
 	mat(t.positions)
 	for _, b := range t.blocks {
+		vec(b.gamma0)
+		vec(b.beta0)
 		vec(b.gamma1)
 		vec(b.beta1)
-		vec(b.gamma2)
-		vec(b.beta2)
 		mat(b.keys)
 		mat(b.queries)
 		mat(b.values)

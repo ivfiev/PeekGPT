@@ -194,15 +194,15 @@ func TestSoftmax(te *testing.T) {
 
 func TestBlockLayerNorm(te *testing.T) {
 	b := newB(4, 3, ReLU)
-	b.xs0 = testMat([][]float64{
+	b.XS0 = testMat([][]float64{
 		{1, 0, 0, 0},
 		{0, 0, 0, 1},
 		{0, 0, 0, 0},
 	})
-	b.gamma1 = vector{1.1, 1.2, 1.3, 1.4}
-	b.beta1 = vector{0.5, 0.6, 0.7, -0.5}
+	b.gamma0 = vector{1.1, 1.2, 1.3, 1.4}
+	b.beta0 = vector{0.5, 0.6, 0.7, -0.5}
 	b.run()
-	assertEq(b.xs1, [][]float64{
+	assertEq(b.XS1, [][]float64{
 		{2.405, -0.093, -0.051, -1.308},
 		{-0.135, -0.093, -0.051, 1.925},
 		{0.000, 0.000, 0.000, 0.000},
@@ -227,7 +227,7 @@ func TestAddMatV(te *testing.T) {
 func TestBlocksE2E(te *testing.T) {
 	t := newT(4, 3, 2, []rune("abc"))
 	t.rand(rand.New(rand.NewSource(7357)))
-	t.xs = testMat([][]float64{
+	t.XS = testMat([][]float64{
 		{0.2, -0.34, 1.2, -0.5},
 		{-0.6, 0.1, 0.2, 0.6},
 		{2, 1, 0, -1},
@@ -239,18 +239,18 @@ func TestBlocksE2E(te *testing.T) {
 	mat33 := makeMat(3, 3)
 	t.run()
 
-	assertEq(t.blocks[0].xs0, t.xs, "0.xs0", te)
+	assertEq(t.blocks[0].XS0, t.XS, "0.xs0", te)
 
-	layerNorm(mat34, t.blocks[0].xs0, t.blocks[0].gamma1, t.blocks[0].beta1)
-	assertEq(mat34, t.blocks[0].xs1, "0.xs1", te)
+	layerNorm(mat34, t.blocks[0].XS0, t.blocks[0].gamma0, t.blocks[0].beta0)
+	assertEq(mat34, t.blocks[0].XS1, "0.xs1", te)
 
-	mulMat(mat34, t.blocks[0].xs1, t.blocks[0].queries)
+	mulMat(mat34, t.blocks[0].XS1, t.blocks[0].queries)
 	assertEq(mat34, t.blocks[0].Q, "0.Q", te)
 
-	mulMat(mat34, t.blocks[0].xs1, t.blocks[0].keys)
+	mulMat(mat34, t.blocks[0].XS1, t.blocks[0].keys)
 	assertEq(mat34, t.blocks[0].K, "0.K", te)
 
-	mulMat(mat34, t.blocks[0].xs1, t.blocks[0].values)
+	mulMat(mat34, t.blocks[0].XS1, t.blocks[0].values)
 	assertEq(mat34, t.blocks[0].V, "0.V", te)
 
 	mulMatT(mat33, t.blocks[0].Q, t.blocks[0].K)
@@ -267,14 +267,14 @@ func TestBlocksE2E(te *testing.T) {
 	assertEq(mat34, t.blocks[0].P, "0.P", te)
 
 	mat34.Zero()
-	addMatM(mat34, t.blocks[0].xs0, t.blocks[0].P)
-	assertEq(mat34, t.blocks[0].R1, "0.R1", te)
+	addMatM(mat34, t.blocks[0].XS0, t.blocks[0].P)
+	assertEq(mat34, t.blocks[0].R0, "0.R1", te)
 
 	mat34.Zero()
-	layerNorm(mat34, t.blocks[0].R1, t.blocks[0].gamma2, t.blocks[0].beta2)
-	assertEq(mat34, t.blocks[0].xs2, "0.xs2", te)
+	layerNorm(mat34, t.blocks[0].R0, t.blocks[0].gamma1, t.blocks[0].beta1)
+	assertEq(mat34, t.blocks[0].XS2, "0.xs2", te)
 
-	mulMat(mat34, t.blocks[0].xs2, t.blocks[0].input)
+	mulMat(mat34, t.blocks[0].XS2, t.blocks[0].input)
 	addMatV(mat34, t.blocks[0].bias0)
 	assertEq(mat34, t.blocks[0].I, "0.I", te)
 
@@ -285,12 +285,12 @@ func TestBlocksE2E(te *testing.T) {
 	addMatV(mat34, t.blocks[0].bias1)
 	assertEq(mat34, t.blocks[0].H, "0.H", te)
 
-	addMatM(mat34, t.blocks[0].H, t.blocks[0].R1)
-	assertEq(mat34, t.blocks[0].R2, "0.R2", te)
+	addMatM(mat34, t.blocks[0].H, t.blocks[0].R0)
+	assertEq(mat34, t.blocks[0].R1, "0.R2", te)
 
-	assertEq(t.blocks[1].xs0, t.blocks[0].R2, "1.xs0", te)
+	assertEq(t.blocks[1].XS0, t.blocks[0].R1, "1.xs0", te)
 
-	mulMat(mat33, t.blocks[1].R2, t.linear)
+	mulMat(mat33, t.blocks[1].R1, t.linear)
 	addMatV(mat33, t.bias2)
 	assertEq(t.L, mat33, "t.L", te)
 
@@ -315,7 +315,7 @@ func TestHeatmaps(te *testing.T) {
 		{-1, -1, 1},
 		{-1, -1, -1},
 	})
-	t.blocks[0].xs0 = testMat([][]float64{
+	t.blocks[0].XS0 = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
@@ -325,7 +325,7 @@ func TestHeatmaps(te *testing.T) {
 		{-1, 1, 1, 0},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].R1 = testMat([][]float64{
+	t.blocks[0].R0 = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 1, 0},
 		{0, 0, 1, 3},
@@ -335,17 +335,17 @@ func TestHeatmaps(te *testing.T) {
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].R2 = testMat([][]float64{
+	t.blocks[0].R1 = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
 	})
 	heatmaps := t.calcHeatmap(1, []matrix{
-		t.blocks[0].xs0,
+		t.blocks[0].XS0,
 		t.blocks[0].P,
-		t.blocks[0].R1,
+		t.blocks[0].R0,
 		t.blocks[0].H,
-		t.blocks[0].R2,
+		t.blocks[0].R1,
 	})
 	t.prompt = []rune("abc")
 	t.printHeatmap([]int{1})
@@ -402,13 +402,13 @@ func TestLoadXs(te *testing.T) {
 		{0, 0, 0, 0.5},
 	})
 	t.loadXs([]rune("bac"))
-	assertEq(t.xs, [][]float64{
+	assertEq(t.XS, [][]float64{
 		{0, 1, 0, -0.5},
 		{1, -0.1, 0.1, 0},
 		{0, 0, 1, 0.5},
 	}, "LoadXS", te)
 	t.loadXs([]rune("cb"))
-	assertEq(t.xs, [][]float64{
+	assertEq(t.XS, [][]float64{
 		{0, 0, 1, -0.5},
 		{0, 0.9, 0.1, 0},
 		{0, 0, 0, 0},
@@ -437,20 +437,20 @@ func TestMatrixInit(te *testing.T) {
 	}
 	t := newT(4, 3, 2, []rune("abc"))
 	assert(t.tokens, func(f float64) bool { return f == 0 })
-	assert(t.xs, func(f float64) bool { return f == 0 })
+	assert(t.XS, func(f float64) bool { return f == 0 })
 
 	t.rand(rand.New(rand.NewSource(7357)))
 	assert(t.tokens, func(f float64) bool { return f != 0 })
 	assert(t.positions, func(f float64) bool { return f != 0 })
 	for _, b := range t.blocks {
-		assert(b.gamma1, func(f float64) bool { return f == 1 })
-		assert(b.beta1, func(f float64) bool { return f == 0 })
+		assert(b.gamma0, func(f float64) bool { return f == 1 })
+		assert(b.beta0, func(f float64) bool { return f == 0 })
 		assert(b.keys, func(f float64) bool { return f != 0 })
 		assert(b.queries, func(f float64) bool { return f != 0 })
 		assert(b.values, func(f float64) bool { return f != 0 })
 		assert(b.proj, func(f float64) bool { return f != 0 })
-		assert(b.gamma2, func(f float64) bool { return f == 1 })
-		assert(b.beta2, func(f float64) bool { return f == 0 })
+		assert(b.gamma1, func(f float64) bool { return f == 1 })
+		assert(b.beta1, func(f float64) bool { return f == 0 })
 		assert(b.input, func(f float64) bool { return f != 0 })
 		assert(b.bias0, func(f float64) bool { return f == 0 })
 		assert(b.hidden, func(f float64) bool { return f != 0 })
@@ -467,14 +467,14 @@ func TestMatrixInit(te *testing.T) {
 	assert(t.tokens, func(f float64) bool { return f == 7357 })
 	assert(t.positions, func(f float64) bool { return f == 7357 })
 	for _, b := range t.blocks {
-		assert(b.gamma1, func(f float64) bool { return f == 7357 })
-		assert(b.beta1, func(f float64) bool { return f == 7357 })
+		assert(b.gamma0, func(f float64) bool { return f == 7357 })
+		assert(b.beta0, func(f float64) bool { return f == 7357 })
 		assert(b.keys, func(f float64) bool { return f == 7357 })
 		assert(b.queries, func(f float64) bool { return f == 7357 })
 		assert(b.values, func(f float64) bool { return f == 7357 })
 		assert(b.proj, func(f float64) bool { return f == 7357 })
-		assert(b.gamma2, func(f float64) bool { return f == 7357 })
-		assert(b.beta2, func(f float64) bool { return f == 7357 })
+		assert(b.gamma1, func(f float64) bool { return f == 7357 })
+		assert(b.beta1, func(f float64) bool { return f == 7357 })
 		assert(b.input, func(f float64) bool { return f == 7357 })
 		assert(b.bias0, func(f float64) bool { return f == 7357 })
 		assert(b.hidden, func(f float64) bool { return f == 7357 })
@@ -496,6 +496,8 @@ func TestMatrixInit(te *testing.T) {
 	t.bias2 = vector{1, 1, 1}
 	t.blocks[0].bias0 = vector{2, 2, 2, 2}
 	t.blocks[0].bias1 = vector{3, 3, 3, 3}
+	t.blocks[0].beta0 = vector{4, 4, 4, 4}
+	t.blocks[0].beta1 = vector{5, 5, 5, 5}
 	t.dump(theta1)
 	t.apply(theta1)
 	t.dump(theta2)

@@ -7,7 +7,9 @@ Minimal from-scratch implementation of a simple transformer model.
 - MLP
 - Multiple blocks
 
-Included are some simple tasks for training, eg copy/reverse/index a string, sum integers, etc. [OpenBLAS](https://github.com/OpenMathLib/OpenBLAS) recommended, if possible a build with AVX512 support.
+[OpenBLAS](https://github.com/OpenMathLib/OpenBLAS) recommended, if possible a build with AVX512 support.
+
+Included are some simple tasks for training, eg copy/reverse/index a string, sum integers, etc. 
 
 ## Example
 

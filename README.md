@@ -7,7 +7,7 @@ Minimal from-scratch implementation of a simple transformer model.
 - MLP
 - Multiple blocks
 
-Trains using [SPSA](https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation).
+Trains using [SPSA](https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation) locally. No API calls, no external dependencies other than [gonum](https://github.com/gonum/gonum) matrix library.
 
 [OpenBLAS](https://github.com/OpenMathLib/OpenBLAS) recommended, if possible a build with AVX512 support.
 

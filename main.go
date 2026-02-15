@@ -29,9 +29,9 @@ func reverseModel() *transformer {
 	rng := rand.New(rand.NewSource(seed))
 	trainingSet := generateReverseTask([]rune("0123456789"), 4, 2500, rng)
 	validationSet := generateReverseTask([]rune("0123456789"), 4, 100, rng)
-	t := train(32, 9, 2,
+	t := train(64, 9, 2,
 		trainingSet, validationSet,
-		4, 20000, 32, 16, 0.0005, 0.0000001, seed)
+		4, 5000, 32, 16, 0.001, 0.0000001, seed)
 	return t
 }
 

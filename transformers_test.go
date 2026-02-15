@@ -151,7 +151,7 @@ func TestPointLoss(te *testing.T) {
 	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
-	actual = tr.pointLoss(t, []rune("a|??=a"))
+	actual = tr.pointLoss(t, []rune("a|?=a"))
 	expected = (p(2, 0)) / 1.0
 	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)

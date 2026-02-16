@@ -10,7 +10,7 @@ import (
 )
 
 type training struct {
-	t1, t2 *transformer // copies for parallelism
+	ts []*transformer // copies for parallelism
 
 	training   [][]rune
 	validation [][]rune
@@ -20,21 +20,29 @@ type training struct {
 	uiters   int
 
 	rng *rand.Rand
+
+	spsa int
+	us   vector
+	vs   vector
 }
 
 func newTraining(t *transformer) *training {
+	ts := make([]*transformer, 32)
+	ts[0] = t
 	return &training{
-		t1: t,
+		ts: ts,
+		us: make(vector, 32),
+		vs: make(vector, 32),
 	}
 }
 
 func (tr *training) train(
 	data, validation [][]rune,
 	seed int64,
-	iters, ubatches, uiters int,
+	spsaSamples, iters, ubatches, uiters int,
 	lr, eps float64,
 ) *transformer {
-	t := tr.t1
+	t := tr.ts[0]
 	vocab := getVocab(data)
 	if len(vocab) != t.dVocab {
 		log.Panicf("incompatible vocab %d != %d\n", len(vocab), t.dVocab)
@@ -47,10 +55,15 @@ func (tr *training) train(
 	t.rand(rng)
 	t.dump(theta)
 	tr.ubatches = make([]int, ubatches)
-	tr.t2 = t.clone()
+	for i := range spsaSamples * 2 {
+		if tr.ts[i] == nil {
+			tr.ts[i] = t.clone()
+		}
+	}
+	tr.spsa = spsaSamples
 	tr.rng = rng
 	tr.uiters = uiters
-	spsa(tr, theta, iters, lr, eps, rng)
+	spsa(tr, theta, spsaSamples, iters, lr, eps, seed)
 	t.apply(theta)
 	return t
 }
@@ -121,35 +134,36 @@ func (tr *training) loadYs(t *transformer, data []rune, x, y, k int) {
 	}
 }
 
-func (tr *training) eval2(u, v vector, i int) (float64, float64) {
+func (tr *training) eval2(us, vs []vector, i int) (vector, vector) {
 	if i%tr.uiters == 0 {
 		tr.loadBatch()
 	}
 	var wg sync.WaitGroup
-	yu, yv := 0.0, 0.0
-	wg.Go(func() {
-		yu = tr.eval(tr.t1, u)
-	})
-	wg.Go(func() {
-		yv = tr.eval(tr.t2, v)
-	})
+	for i := range tr.spsa {
+		wg.Go(func() {
+			tr.us[i] = tr.eval(tr.ts[2*i], us[i])
+		})
+		wg.Go(func() {
+			tr.vs[i] = tr.eval(tr.ts[2*i+1], vs[i])
+		})
+	}
 	wg.Wait()
 	if i%250 == 0 {
-		w := u
+		w := us[0]
 		if i%500 == 0 {
-			w = v
+			w = vs[0]
 		}
-		loss := tr.validate(tr.t1, w)
+		loss := tr.validate(tr.ts[0], w)
 		fmt.Printf("\r              ")
 		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(tr.iters)*100))
 	}
-	return yu, yv
+	return tr.us, tr.vs
 }
 
 func train(
 	dModel, context, blocks int,
 	data, validation [][]rune,
-	iters, ubatches, uiters int,
+	spsaSamples, iters, ubatches, uiters int,
 	lr, eps float64,
 	seed int64,
 ) *transformer {
@@ -157,7 +171,7 @@ func train(
 	tr := newTraining(t)
 	tr.iters = iters
 	now := time.Now().UnixMilli()
-	tr.train(data, validation, seed, iters, ubatches, uiters, lr, eps)
+	tr.train(data, validation, seed, spsaSamples, iters, ubatches, uiters, lr, eps)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", t.size(), float64(time.Now().UnixMilli()-now)/1000)
-	return tr.t1
+	return tr.ts[0]
 }

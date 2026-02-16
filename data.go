@@ -54,3 +54,22 @@ func generateIndexTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	}
 	return dataset
 }
+
+func generateSumTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	for range n {
+		k := 1 + rng.Int()%maxLen
+		data := make([]rune, k)
+		for i := range k {
+			data[i] = vocab[rng.Int()%len(vocab)]
+		}
+		str := string(data)
+		sum := 0
+		for _, r := range data {
+			sum += int(r - '0')
+		}
+		qs := strings.Repeat("?", len(fmt.Sprint(sum)))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s|%s=%d", str, qs, sum)))
+	}
+	return dataset
+}

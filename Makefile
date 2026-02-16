@@ -10,3 +10,6 @@ run:
 
 test:
 	$(CGO_ENV) go test
+
+build:
+	$(CGO_ENV) go build

@@ -11,7 +11,6 @@ import (
 type transformer struct {
 	dModel  int
 	context int
-	dVocab  int
 
 	vocab     []rune // vocabulary
 	tokens    matrix // token embeddings
@@ -83,7 +82,6 @@ func newT(dModel, ctx, blocks int, vocab []rune) *transformer {
 	t := transformer{
 		context: ctx,
 		dModel:  dModel,
-		dVocab:  dVocab,
 	}
 	t.tokens = makeMat(dVocab, dModel)
 	t.positions = makeMat(ctx, dModel)

@@ -44,8 +44,8 @@ func (tr *training) train(
 ) *transformer {
 	t := tr.ts[0]
 	vocab := getVocab(data)
-	if len(vocab) != t.dVocab {
-		log.Panicf("incompatible vocab %d != %d\n", len(vocab), t.dVocab)
+	if !slices.Equal(vocab, t.vocab) {
+		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(t.vocab))
 	}
 	tr.training = data
 	tr.validation = validation

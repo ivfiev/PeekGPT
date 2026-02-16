@@ -6,11 +6,11 @@ import (
 	"math"
 )
 
-func (t *transformer) printAttention() {
-	for bi, b := range t.blocks {
-		for i := range t.prompt {
-			fmt.Printf("%c ", t.prompt[i])
-			for j := range t.prompt {
+func (m *model) printAttention() {
+	for bi, b := range m.blocks {
+		for i := range m.prompt {
+			fmt.Printf("%c ", m.prompt[i])
+			for j := range m.prompt {
 				fg, bg := 0, 0
 				fg = int(255 * b.S.At(i, j))
 				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
@@ -18,22 +18,22 @@ func (t *transformer) printAttention() {
 			println()
 		}
 		fmt.Printf("   ")
-		for _, c := range t.prompt {
+		for _, c := range m.prompt {
 			fmt.Printf("%c  ", c)
 		}
 		println()
-		if bi < len(t.blocks)-1 {
+		if bi < len(m.blocks)-1 {
 			println()
 		}
 	}
 }
 
-func (t *transformer) calcHeatmap(x int, As []matrix) []vector {
-	target := make(vector, t.dModel)
-	d, _, c, s := unmat(t.L)
+func (m *model) calcHeatmap(x int, As []matrix) []vector {
+	target := make(vector, m.dModel)
+	d, _, c, s := unmat(m.L)
 	_, rmix := rowMax(d[x*s : x*s+c])
-	for i := range t.dModel {
-		target[i] = t.linear.At(i, rmix)
+	for i := range m.dModel {
+		target[i] = m.linear.At(i, rmix)
 	}
 	maxProd := math.Inf(-1)
 	minProd := math.Inf(1)
@@ -50,7 +50,7 @@ func (t *transformer) calcHeatmap(x int, As []matrix) []vector {
 	}
 	rgbs := make([]vector, 0, len(As))
 	for _, A := range As {
-		rgb := make(vector, t.dModel)
+		rgb := make(vector, m.dModel)
 		d, _, c, s := unmat(A)
 		x := d[x*s : x*s+c]
 		for i := range rgb {
@@ -61,18 +61,18 @@ func (t *transformer) calcHeatmap(x int, As []matrix) []vector {
 	return rgbs
 }
 
-func (t *transformer) printHeatmap(xs []int) {
+func (m *model) printHeatmap(xs []int) {
 	heatmaps := [][]vector{}
-	As := make([]matrix, 5*len(t.blocks))
+	As := make([]matrix, 5*len(m.blocks))
 	for _, x := range xs {
-		for i, b := range t.blocks {
+		for i, b := range m.blocks {
 			As[0+i*5] = b.XS0
 			As[1+i*5] = b.P
 			As[2+i*5] = b.R0
 			As[3+i*5] = b.H
 			As[4+i*5] = b.R1
 		}
-		heatmaps = append(heatmaps, t.calcHeatmap(x, As))
+		heatmaps = append(heatmaps, m.calcHeatmap(x, As))
 	}
 	for x, heatmap := range heatmaps {
 		println()
@@ -89,7 +89,7 @@ func (t *transformer) printHeatmap(xs []int) {
 			blockIx := label / 5
 			switch label % 5 {
 			case 0:
-				fmt.Printf("  Block #%d, \"%s\"\n", 1+blockIx, tokenHighlight(t.prompt, xs[x]))
+				fmt.Printf("  Block #%d, \"%s\"\n", 1+blockIx, tokenHighlight(m.prompt, xs[x]))
 			case 1:
 				fmt.Printf("  Attention Δ")
 			case 2:
@@ -98,7 +98,7 @@ func (t *transformer) printHeatmap(xs []int) {
 				fmt.Printf("  MLP Δ")
 			case 4:
 				final := ""
-				if blockIx == len(t.blocks)-1 {
+				if blockIx == len(m.blocks)-1 {
 					final = ", final output"
 				}
 				fmt.Printf("  Post-MLP%s\n", final)

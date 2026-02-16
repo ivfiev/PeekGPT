@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-func generateCopyTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+// TODO get rid of this
+
+func genCopyDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	dataset := make([][]rune, 0, n)
 	for range n {
 		k := 1 + rng.Int()%maxLen
@@ -22,7 +24,7 @@ func generateCopyTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	return dataset
 }
 
-func generateReverseTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+func genReverseDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	dataset := make([][]rune, 0, n)
 	for range n {
 		k := 1 + rng.Int()%maxLen
@@ -39,7 +41,7 @@ func generateReverseTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	return dataset
 }
 
-func generateIndexTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+func genIndexDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	dataset := make([][]rune, 0, n)
 	for range n {
 		k := 1 + rng.Int()%maxLen
@@ -55,7 +57,7 @@ func generateIndexTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	return dataset
 }
 
-func generateSumTask(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+func genSumDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 	dataset := make([][]rune, 0, n)
 	for range n {
 		k := 1 + rng.Int()%maxLen

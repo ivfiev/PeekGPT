@@ -10,7 +10,7 @@ import (
 )
 
 type training struct {
-	ts []*transformer // copies for parallelism
+	models []*model // copies for parallelism
 
 	training   [][]rune
 	validation [][]rune
@@ -26,46 +26,46 @@ type training struct {
 	vs   vector
 }
 
-func newTraining(t *transformer) *training {
-	ts := make([]*transformer, 32)
-	ts[0] = t
+func newTraining(m *model) *training {
+	models := make([]*model, 32)
+	models[0] = m
 	return &training{
-		ts: ts,
-		us: make(vector, 32),
-		vs: make(vector, 32),
+		models: models,
+		us:     make(vector, 32),
+		vs:     make(vector, 32),
 	}
 }
 
-func (tr *training) train(
+func (t *training) train(
 	data, validation [][]rune,
 	seed int64,
 	spsaSamples, iters, ubatches, uiters int,
 	lr, eps float64,
-) *transformer {
-	t := tr.ts[0]
+) *model {
+	model := t.models[0]
 	vocab := getVocab(data)
-	if !slices.Equal(vocab, t.vocab) {
-		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(t.vocab))
+	if !slices.Equal(vocab, model.vocab) {
+		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(model.vocab))
 	}
-	tr.training = data
-	tr.validation = validation
-	t.vocab = vocab
-	theta := make(vector, t.size())
+	t.training = data
+	t.validation = validation
+	model.vocab = vocab
+	theta := make(vector, model.size())
 	rng := rand.New(rand.NewSource(seed))
-	t.rand(rng)
-	t.dump(theta)
-	tr.ubatches = make([]int, ubatches)
+	model.rand(rng)
+	model.dump(theta)
+	t.ubatches = make([]int, ubatches)
 	for i := range spsaSamples * 2 {
-		if tr.ts[i] == nil {
-			tr.ts[i] = t.clone()
+		if t.models[i] == nil {
+			t.models[i] = model.clone()
 		}
 	}
-	tr.spsa = spsaSamples
-	tr.rng = rng
-	tr.uiters = uiters
-	spsa(tr, theta, spsaSamples, iters, lr, eps, seed)
-	t.apply(theta)
-	return t
+	t.spsa = spsaSamples
+	t.rng = rng
+	t.uiters = uiters
+	spsa(t, theta, spsaSamples, iters, lr, eps, seed)
+	model.apply(theta)
+	return model
 }
 
 func getVocab(data [][]rune) []rune {
@@ -83,68 +83,68 @@ func getVocab(data [][]rune) []rune {
 	return vocab
 }
 
-func (tr *training) loadBatch() {
-	for i := range tr.ubatches {
-		ix := tr.rng.Int() % len(tr.training)
-		tr.ubatches[i] = ix
+func (t *training) loadBatch() {
+	for i := range t.ubatches {
+		ix := t.rng.Int() % len(t.training)
+		t.ubatches[i] = ix
 	}
 }
 
-func (tr *training) eval(t *transformer, theta vector) float64 {
-	t.apply(theta)
+func (t *training) eval(m *model, theta vector) float64 {
+	m.apply(theta)
 	loss := 0.0
-	for _, i := range tr.ubatches {
-		data := tr.training[i]
-		loss += tr.pointLoss(t, data)
+	for _, i := range t.ubatches {
+		data := t.training[i]
+		loss += t.pointLoss(m, data)
 	}
-	return loss / float64(len(tr.ubatches))
+	return loss / float64(len(t.ubatches))
 }
 
-func (tr *training) validate(t *transformer, theta vector) float64 {
-	t.apply(theta)
+func (t *training) validate(m *model, theta vector) float64 {
+	m.apply(theta)
 	loss := 0.0
-	for _, data := range tr.validation {
-		loss += tr.pointLoss(t, data)
+	for _, data := range t.validation {
+		loss += t.pointLoss(m, data)
 	}
-	return loss / float64(len(tr.validation))
+	return loss / float64(len(t.validation))
 }
 
-func (tr *training) pointLoss(t *transformer, data []rune) float64 {
+func (t *training) pointLoss(m *model, data []rune) float64 {
 	separator := slices.Index(data, '|')
 	target := slices.Index(data, '=')
 	if separator == -1 || target == -1 {
-		log.Fatalf("bad pipe/ex indexes")
+		log.Fatalf("bad pipe/eq indexes")
 	}
-	t.loadXs(data[:target])
-	tr.loadYs(t, data, 1+separator, 1+target, len(data)-target-1)
-	t.run()
-	return t.loss()
+	m.loadXs(data[:target])
+	t.loadYs(m, data, 1+separator, 1+target, len(data)-target-1)
+	m.run()
+	return m.loss()
 }
 
-func (tr *training) loadYs(t *transformer, data []rune, x, y, k int) {
-	for i := range t.ys {
-		t.ys[i] = -1
+func (t *training) loadYs(m *model, data []rune, x, y, k int) {
+	for i := range m.ys {
+		m.ys[i] = -1
 	}
 	for i := range k {
-		t.ys[x+i] = slices.Index(t.vocab, data[y+i])
-		if t.ys[x+i] == -1 {
-			fmt.Printf("%s - %s\n", string(data), string(t.vocab))
+		m.ys[x+i] = slices.Index(m.vocab, data[y+i])
+		if m.ys[x+i] == -1 {
+			fmt.Printf("%s - %s\n", string(data), string(m.vocab))
 			log.Panicf("loadYs - bad token %c", data[y+i])
 		}
 	}
 }
 
-func (tr *training) eval2(us, vs []vector, i int) (vector, vector) {
-	if i%tr.uiters == 0 {
-		tr.loadBatch()
+func (t *training) eval2(us, vs []vector, i int) (vector, vector) {
+	if i%t.uiters == 0 {
+		t.loadBatch()
 	}
 	var wg sync.WaitGroup
-	for i := range tr.spsa {
+	for i := range t.spsa {
 		wg.Go(func() {
-			tr.us[i] = tr.eval(tr.ts[2*i], us[i])
+			t.us[i] = t.eval(t.models[2*i], us[i])
 		})
 		wg.Go(func() {
-			tr.vs[i] = tr.eval(tr.ts[2*i+1], vs[i])
+			t.vs[i] = t.eval(t.models[2*i+1], vs[i])
 		})
 	}
 	wg.Wait()
@@ -153,11 +153,11 @@ func (tr *training) eval2(us, vs []vector, i int) (vector, vector) {
 		if i%500 == 0 {
 			w = vs[0]
 		}
-		loss := tr.validate(tr.ts[0], w)
+		loss := t.validate(t.models[0], w)
 		fmt.Printf("\r              ")
-		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(tr.iters)*100))
+		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(t.iters)*100))
 	}
-	return tr.us, tr.vs
+	return t.us, t.vs
 }
 
 func train(
@@ -166,12 +166,12 @@ func train(
 	spsaSamples, iters, ubatches, uiters int,
 	lr, eps float64,
 	seed int64,
-) *transformer {
-	t := newT(dModel, context, blocks, getVocab(data))
-	tr := newTraining(t)
-	tr.iters = iters
+) *model {
+	m := newModel(dModel, context, blocks, getVocab(data))
+	t := newTraining(m)
+	t.iters = iters
 	now := time.Now().UnixMilli()
-	tr.train(data, validation, seed, spsaSamples, iters, ubatches, uiters, lr, eps)
-	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", t.size(), float64(time.Now().UnixMilli()-now)/1000)
-	return tr.ts[0]
+	t.train(data, validation, seed, spsaSamples, iters, ubatches, uiters, lr, eps)
+	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
+	return t.models[0]
 }

@@ -1,4 +1,4 @@
-module github.com/ivfiev/tiny-transformers
+module github.com/ivfiev/vector-lens
 
 go 1.25.6
 

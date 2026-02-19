@@ -15,9 +15,11 @@ import (
 	"gonum.org/v1/netlib/blas/netlib"
 )
 
-func main() {
+func init() {
 	blas64.Use(netlib.Implementation{})
+}
 
+func main() {
 	mode := flag.String("mode", "load", "train/load")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")
@@ -48,17 +50,6 @@ func main() {
 		model := train(*dmodel, *context, *blocks, trainingSet, validationSet, *spsa, *iters, *ubatches, *uiters, *lr, *eps, *seed)
 		store(model, *modelpath)
 	}
-
-	// model := reverseModel()
-	// for {
-	// 	fmt.Printf("Enter context, up to %d chars: ", model.context)
-	// 	reader := bufio.NewReader(os.Stdin)
-	// 	input, err := reader.ReadString('\n')
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// 	model.solve([]rune(strings.TrimRight(input, "\n\r")))
-	// }
 }
 
 func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {

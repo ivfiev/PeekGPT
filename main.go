@@ -88,8 +88,8 @@ func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {
 	if err != nil {
 		log.Panic(err)
 	}
-	words := strings.Split(string(bytes), "\n")
-	for _, word := range words {
+	words := strings.SplitSeq(string(bytes), "\n")
+	for word := range words {
 		data = append(data, []rune(strings.TrimSpace(word)))
 	}
 	return data[:t], data[t : t+v]

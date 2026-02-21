@@ -517,3 +517,28 @@ func TestMatrixInit(te *testing.T) {
 		}
 	}
 }
+
+func TestMatrixCat(te *testing.T) {
+	D := makeMat(3, 6)
+	A := testMat([][]float64{
+		{-1, -2},
+		{-3, -4},
+		{-5, -6},
+	})
+	B := testMat([][]float64{
+		{1, 2},
+		{3, 4},
+		{5, 6},
+	})
+	C := testMat([][]float64{
+		{0.1, 0.2},
+		{0.4, 0.5},
+		{0.7, 0.8},
+	})
+	catMat(D, []matrix{A, C, B})
+	assertEq(D, [][]float64{
+		{-1, -2, 0.1, 0.2, 1, 2},
+		{-3, -4, 0.4, 0.5, 3, 4},
+		{-5, -6, 0.7, 0.8, 5, 6},
+	}, "catMat", te)
+}

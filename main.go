@@ -10,14 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"gonum.org/v1/gonum/blas/blas64"
-	"gonum.org/v1/netlib/blas/netlib"
 )
-
-func init() {
-	blas64.Use(netlib.Implementation{})
-}
 
 func main() {
 	mode := flag.String("mode", "load", "train/load")
@@ -36,6 +29,10 @@ func main() {
 	ubatches := flag.Int("ub", 32, "micro-batches")
 	uiters := flag.Int("ui", 16, "micro-iters")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
+	task := flag.String("task", "", "task data type")
+	vocab := flag.String("vocab", "", "vocab")
+	n := flag.Int("n", 0, "n")
+	maxLen := flag.Int("max", 0, "max")
 	flag.Parse()
 
 	switch *mode {
@@ -49,6 +46,30 @@ func main() {
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
 		model := train(*dmodel, *context, *blocks, trainingSet, validationSet, *spsa, *iters, *ubatches, *uiters, *lr, *eps, *seed)
 		store(model, *modelpath)
+	case "gen":
+		if len(*vocab) == 0 {
+			log.Fatal("empty vocab")
+		}
+		runes := []rune(*vocab)
+		rng := rand.New(rand.NewSource(*seed))
+		switch *task {
+		case "copy":
+			for _, data := range genCopyDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "reverse":
+			for _, data := range genReverseDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "index":
+			for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		default:
+			log.Fatalf("unknown task %s", *task)
+		}
+	default:
+		log.Fatalf("unknown mode %s", *mode)
 	}
 }
 

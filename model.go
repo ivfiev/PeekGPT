@@ -8,10 +8,9 @@ import (
 	"slices"
 )
 
-type transformer struct {
+type model struct {
 	dModel  int
 	context int
-	dVocab  int
 
 	vocab     []rune // vocabulary
 	tokens    matrix // token embeddings
@@ -78,30 +77,29 @@ type block struct {
 	H matrix
 }
 
-func newT(dModel, ctx, blocks int, vocab []rune) *transformer {
+func newModel(dModel, ctx, blocks int, vocab []rune) *model {
 	dVocab := len(vocab)
-	t := transformer{
+	m := model{
 		context: ctx,
 		dModel:  dModel,
-		dVocab:  dVocab,
 	}
-	t.tokens = makeMat(dVocab, dModel)
-	t.positions = makeMat(ctx, dModel)
-	t.XS = makeMat(ctx, dModel)
+	m.tokens = makeMat(dVocab, dModel)
+	m.positions = makeMat(ctx, dModel)
+	m.XS = makeMat(ctx, dModel)
 
-	t.blocks = make([]*block, blocks)
+	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		t.blocks[i] = newB(dModel, ctx, ReLU)
+		m.blocks[i] = newB(dModel, ctx, ReLU)
 	}
 
-	t.linear = makeMat(dModel, dVocab)
-	t.bias2 = make(vector, dVocab)
-	t.L = makeMat(ctx, dVocab)
+	m.linear = makeMat(dModel, dVocab)
+	m.bias2 = make(vector, dVocab)
+	m.L = makeMat(ctx, dVocab)
 
-	t.ys = make([]int, ctx)
-	t.vocab = vocab
+	m.ys = make([]int, ctx)
+	m.vocab = vocab
 
-	return &t
+	return &m
 }
 
 func newB(dModel, ctx int, activation func(float64) float64) *block {
@@ -146,15 +144,15 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 	return &b
 }
 
-func (t *transformer) run() {
-	xs := t.XS
-	for _, b := range t.blocks {
+func (m *model) run() {
+	xs := m.XS
+	for _, b := range m.blocks {
 		b.loadXs(xs)
 		b.run()
 		xs = b.R1
 	}
-	mulMat(t.L, xs, t.linear)
-	addMatV(t.L, t.bias2)
+	mulMat(m.L, xs, m.linear)
+	addMatV(m.L, m.bias2)
 }
 
 func (b *block) run() {
@@ -170,7 +168,6 @@ func (b *block) run() {
 	mulMat(b.SV, b.S, b.V)
 	mulMat(b.P, b.SV, b.proj)
 	addMatM(b.R0, b.XS0, b.P)
-
 	// mlp
 	layerNorm(b.XS2, b.R0, b.gamma1, b.beta1)
 	mulMat(b.I, b.XS2, b.input)
@@ -181,37 +178,37 @@ func (b *block) run() {
 	addMatM(b.R1, b.R0, b.H)
 }
 
-func (t *transformer) loss() float64 {
+func (m *model) loss() float64 {
 	loss := 0.0
 	count := 0
-	d, r, c, s := unmat(t.L)
+	d, r, c, s := unmat(m.L)
 	for i := range r {
-		if t.ys[i] == -1 {
+		if m.ys[i] == -1 {
 			continue
 		}
 		count++
 		row := d[i*s : i*s+c]
 		rowMax, _ := rowMax(row)
 		sum := rowSum(row, rowMax)
-		loss += -d[i*s+t.ys[i]] + rowMax + math.Log(sum)
+		loss += -d[i*s+m.ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(count)
 }
 
-func (t *transformer) clone() *transformer {
-	return newT(t.dModel, t.context, len(t.blocks), t.vocab)
+func (m *model) clone() *model {
+	return newModel(m.dModel, m.context, len(m.blocks), m.vocab)
 }
 
-func (t *transformer) size() int {
+func (m *model) size() int {
 	blocks := 0
-	for _, b := range t.blocks {
+	for _, b := range m.blocks {
 		blocks += b.size()
 	}
 	return blocks +
-		len(t.tokens.RawMatrix().Data) +
-		len(t.positions.RawMatrix().Data) +
-		len(t.linear.RawMatrix().Data) +
-		len(t.bias2)
+		len(m.tokens.RawMatrix().Data) +
+		len(m.positions.RawMatrix().Data) +
+		len(m.linear.RawMatrix().Data) +
+		len(m.bias2)
 }
 
 func (b *block) size() int {
@@ -227,29 +224,29 @@ func (b *block) size() int {
 		len(b.bias1)
 }
 
-func (t *transformer) loadXs(prompt []rune) {
-	if len(prompt) > t.context {
+func (m *model) loadXs(prompt []rune) {
+	if len(prompt) > m.context {
 		log.Fatal("too long xs")
 	}
-	t.XS.Zero()
-	for _, b := range t.blocks {
+	m.XS.Zero()
+	for _, b := range m.blocks {
 		b.XS0.Zero()
 		b.XS1.Zero()
 		b.XS2.Zero()
 	}
-	dx, _, _, sx := unmat(t.XS)
-	dt, _, _, st := unmat(t.tokens)
-	dp, _, _, sp := unmat(t.positions)
+	dx, _, _, sx := unmat(m.XS)
+	dt, _, _, st := unmat(m.tokens)
+	dp, _, _, sp := unmat(m.positions)
 	for posIx := range prompt {
-		vocIx := slices.Index(t.vocab, prompt[posIx])
+		vocIx := slices.Index(m.vocab, prompt[posIx])
 		if vocIx == -1 {
 			log.Panicf("loadXs: token %c is invalid", prompt[posIx])
 		}
-		for j := range t.dModel {
+		for j := range m.dModel {
 			dx[posIx*sx+j] = dt[vocIx*st+j] + dp[posIx*sp+j]
 		}
 	}
-	t.prompt = prompt
+	m.prompt = prompt
 }
 
 func (b *block) loadXs(xs matrix) {
@@ -261,42 +258,42 @@ func (b *block) loadXs(xs matrix) {
 	copy(dxs0, dxs)
 }
 
-func (t *transformer) predict(ctx []rune) ([]rune, vector) {
-	t.loadXs(ctx)
-	t.run()
-	d, _, c, s := unmat(t.L)
+func (m *model) predict(ctx []rune) ([]rune, vector) {
+	m.loadXs(ctx)
+	m.run()
+	d, _, c, s := unmat(m.L)
 	nexts := make([]rune, len(ctx))
 	probs := make(vector, len(ctx))
 	for tokIx := range len(ctx) {
 		rm, i := rowMax(d[s*tokIx : s*tokIx+c])
 		sum := rowSum(d[tokIx*s:tokIx*s+c], rm)
 		prob := math.Exp(d[tokIx*s+i]-rm) / sum
-		nexts[tokIx] = t.vocab[i]
+		nexts[tokIx] = m.vocab[i]
 		probs[tokIx] = prob
 	}
 	return nexts, probs
 }
 
-func (t *transformer) generate(ctx []rune, n int) {
+func (m *model) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
-	d, _, c, s := unmat(t.L)
+	d, _, c, s := unmat(m.L)
 	for range n {
-		t.loadXs(ctx)
-		t.run()
+		m.loadXs(ctx)
+		m.run()
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
 		i := softSample(d[tokIx*s : tokIx*s+c])
-		fmt.Printf("%c", t.vocab[i])
-		ctx = append(ctx, t.vocab[i])
-		ctx = ctx[max(0, len(ctx)-t.context):]
+		fmt.Printf("%c", m.vocab[i])
+		ctx = append(ctx, m.vocab[i])
+		ctx = ctx[max(0, len(ctx)-m.context):]
 	}
 	println()
 }
 
-func (t *transformer) solve(ctx []rune) {
-	t.loadXs(ctx)
-	t.run()
-	d, _, c, s := unmat(t.L)
+func (m *model) solve(ctx []rune) {
+	m.loadXs(ctx)
+	m.run()
+	d, _, c, s := unmat(m.L)
 	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
@@ -304,18 +301,18 @@ func (t *transformer) solve(ctx []rune) {
 	for ; i < len(ctx); i++ {
 		// printVec(d[i*s : i*s+c])
 		_, j := rowMax(d[i*s : i*s+c])
-		prediction = append(prediction, t.vocab[j])
+		prediction = append(prediction, m.vocab[j])
 		xs = append(xs, i)
 	}
 	println()
-	t.printHeatmap(xs)
+	m.printHeatmap(xs)
 	println()
-	t.printAttention()
+	m.printAttention()
 	println()
 	fmt.Printf("Input: [%s]\nPrediction: [%s]\n\n", string(ctx), string(prediction))
 }
 
-func (t *transformer) rand(rng *rand.Rand) {
+func (m *model) rand(rng *rand.Rand) {
 	mat := func(m matrix, scale float64) {
 		d, r, c, s := unmat(m)
 		for i := range r {
@@ -324,9 +321,9 @@ func (t *transformer) rand(rng *rand.Rand) {
 			}
 		}
 	}
-	mat(t.tokens, 0.2)
-	mat(t.positions, 0.2)
-	for _, b := range t.blocks {
+	mat(m.tokens, 0.2)
+	mat(m.positions, 0.2)
+	for _, b := range m.blocks {
 		for i := range b.gamma0 {
 			b.gamma0[i] = 1
 		}
@@ -352,26 +349,26 @@ func (t *transformer) rand(rng *rand.Rand) {
 			b.bias1[i] = 0
 		}
 	}
-	mat(t.linear, 0.2)
-	for i := range t.bias2 {
-		t.bias2[i] = 0
+	mat(m.linear, 0.2)
+	for i := range m.bias2 {
+		m.bias2[i] = 0
 	}
 }
 
-func (t *transformer) apply(theta vector) {
-	T := 0
+func (m *model) apply(theta vector) {
+	M := 0
 	vec := func(v vector) {
-		copy(v, theta[T:T+len(v)])
-		T += len(v)
+		copy(v, theta[M:M+len(v)])
+		M += len(v)
 	}
 	mat := func(m matrix) {
 		d, _, _, _ := unmat(m)
-		copy(d, theta[T:T+len(d)])
-		T += len(d)
+		copy(d, theta[M:M+len(d)])
+		M += len(d)
 	}
-	mat(t.tokens)
-	mat(t.positions)
-	for _, b := range t.blocks {
+	mat(m.tokens)
+	mat(m.positions)
+	for _, b := range m.blocks {
 		vec(b.gamma0)
 		vec(b.beta0)
 		vec(b.gamma1)
@@ -385,27 +382,27 @@ func (t *transformer) apply(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
-	mat(t.linear)
-	vec(t.bias2)
-	if T != len(theta) {
+	mat(m.linear)
+	vec(m.bias2)
+	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}
 }
 
-func (t *transformer) dump(theta vector) {
-	T := 0
+func (m *model) dump(theta vector) {
+	M := 0
 	vec := func(v vector) {
-		copy(theta[T:T+len(v)], v)
-		T += len(v)
+		copy(theta[M:M+len(v)], v)
+		M += len(v)
 	}
 	mat := func(m matrix) {
 		d, _, _, _ := unmat(m)
-		copy(theta[T:T+len(d)], d)
-		T += len(d)
+		copy(theta[M:M+len(d)], d)
+		M += len(d)
 	}
-	mat(t.tokens)
-	mat(t.positions)
-	for _, b := range t.blocks {
+	mat(m.tokens)
+	mat(m.positions)
+	for _, b := range m.blocks {
 		vec(b.gamma0)
 		vec(b.beta0)
 		vec(b.gamma1)
@@ -419,9 +416,9 @@ func (t *transformer) dump(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
-	mat(t.linear)
-	vec(t.bias2)
-	if T != len(theta) {
+	mat(m.linear)
+	vec(m.bias2)
+	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}
 }

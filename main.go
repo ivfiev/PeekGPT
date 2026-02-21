@@ -1,72 +1,183 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
+	"slices"
 	"strings"
 	"time"
-
-	"gonum.org/v1/gonum/blas/blas64"
-	"gonum.org/v1/netlib/blas/netlib"
 )
 
-func copyModel() *transformer {
-	seed := time.Now().UnixNano()
-	rng := rand.New(rand.NewSource(seed))
-	trainingSet := generateCopyTask([]rune("0123456789"), 5, 1000, rng)
-	validationSet := generateCopyTask([]rune("0123456789"), 5, 100, rng)
-	t := train(32, 21, 2,
-		trainingSet, validationSet,
-		1, 100000, 32, 16, 0.0002, 0.00001, seed)
-	return t
-}
-
-func reverseModel() *transformer {
-	seed := time.Now().UnixNano()
-	rng := rand.New(rand.NewSource(seed))
-	trainingSet := generateReverseTask([]rune("0123456789"), 10, 25000, rng)
-	validationSet := generateReverseTask([]rune("0123456789"), 10, 100, rng)
-	t := train(64, 21, 2,
-		trainingSet, validationSet,
-		8, 15000, 32, 16, 0.001, 0.0000001, seed)
-	return t
-}
-
-func sumModel() *transformer {
-	seed := time.Now().UnixNano()
-	rng := rand.New(rand.NewSource(seed))
-	trainingSet := generateSumTask([]rune("0123"), 3, 1000, rng)
-	validationSet := generateSumTask([]rune("0123"), 3, 100, rng)
-	t := train(32, 9, 2,
-		trainingSet, validationSet,
-		1, 100000, 32, 16, 0.0001, 0.00001, seed)
-	return t
-}
-
-func indexModel() *transformer {
-	seed := time.Now().UnixNano()
-	rng := rand.New(rand.NewSource(seed))
-	trainingSet := generateIndexTask([]rune("0123456789"), 5, 1000, rng)
-	validationSet := generateIndexTask([]rune("0123456789"), 5, 100, rng)
-	t := train(32, 8+3, 2,
-		trainingSet, validationSet,
-		4, 25000, 32, 16, 0.0005, 0.00001, seed)
-	return t
-}
-
 func main() {
-	blas64.Use(netlib.Implementation{})
-	t := reverseModel()
-	for {
-		fmt.Printf("Enter context, up to %d chars: ", t.context)
-		reader := bufio.NewReader(os.Stdin)
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			log.Fatal(err)
+	mode := flag.String("mode", "load", "train/load/eval/gen")
+	datapath := flag.String("data", "", "training/validation data path")
+	modelpath := flag.String("model", "", "model path")
+	prompt := flag.String("prompt", "", "prompt")
+	tsize := flag.Int("t", 0, "size of the training set")
+	vsize := flag.Int("v", 0, "size of the validation set")
+	dmodel := flag.Int("dmodel", 0, "d_model")
+	context := flag.Int("ctx", 0, "context")
+	blocks := flag.Int("blocks", 1, "blocks")
+	lr := flag.Float64("lr", 0.0001, "learning rate")
+	spsa := flag.Int("spsa", 8, "SPSA samples")
+	eps := flag.Float64("eps", 0.000001, "eps")
+	iters := flag.Int("iters", 1000, "training iterations")
+	ubatches := flag.Int("ub", 32, "micro-batches")
+	uiters := flag.Int("ui", 16, "micro-iters")
+	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
+	task := flag.String("task", "", "task data type")
+	vocab := flag.String("vocab", "", "vocab")
+	n := flag.Int("n", 0, "n")
+	maxLen := flag.Int("max", 0, "max")
+	flag.Parse()
+
+	switch *mode {
+	case "load":
+		if *prompt == "" {
+			log.Panicln("empty prompt")
 		}
-		t.solve([]rune(strings.TrimRight(input, "\n\r")))
+		model := load(*modelpath)
+		model.solve([]rune(*prompt))
+	case "train":
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+		model := train(*dmodel, *context, *blocks, trainingSet, validationSet, *spsa, *iters, *ubatches, *uiters, *lr, *eps, *seed)
+		store(model, *modelpath)
+	case "gen":
+		if len(*vocab) == 0 {
+			log.Fatal("empty vocab")
+		}
+		runes := []rune(*vocab)
+		rng := rand.New(rand.NewSource(*seed))
+		switch *task {
+		case "copy":
+			for _, data := range genCopyDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "reverse":
+			for _, data := range genReverseDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "index":
+			for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		default:
+			log.Fatalf("unknown task %s", *task)
+		}
+	case "eval":
+		model := load(*modelpath)
+		validationSet, _ := readTrainingData(*datapath, *vsize, 0)
+		tr := newTraining(model)
+		tr.validation = validationSet
+		loss := tr.validate(model)
+		fmt.Printf("Loss: %.12f\n", loss)
+		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
+	default:
+		log.Fatalf("unknown mode %s", *mode)
 	}
+}
+
+func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {
+	data := make([][]rune, 0)
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		log.Panic(err)
+	}
+	words := strings.Split(string(bytes), "\n")
+	for _, word := range words {
+		data = append(data, []rune(strings.TrimSpace(word)))
+	}
+	return data[:t], data[t : t+v]
+}
+
+type stored struct {
+	DModel  int
+	Context int
+	Blocks  int
+	Vocab   []rune
+	Params  vector
+}
+
+func store(m *model, path string) {
+	stored := &stored{}
+	stored.DModel = m.dModel
+	stored.Context = m.context
+	stored.Blocks = len(m.blocks)
+	stored.Vocab = m.vocab
+	stored.Params = make(vector, m.size())
+	m.dump(stored.Params)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o666)
+	if err != nil {
+		log.Panic(err)
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	encoder.Encode(stored)
+}
+
+func load(path string) *model {
+	stored := &stored{}
+	file, err := os.OpenFile(path, os.O_RDONLY, 0o777)
+	if err != nil {
+		log.Panic(err)
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	decoder.Decode(stored)
+	model := newModel(stored.DModel, stored.Context, stored.Blocks, stored.Vocab)
+	model.apply(stored.Params)
+	return model
+}
+
+func genCopyDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	for range n {
+		k := 1 + rng.Int()%maxLen
+		data := make([]rune, k)
+		for i := range k {
+			data[i] = vocab[rng.Int()%len(vocab)]
+		}
+		str := string(data)
+		qs := strings.Repeat("?", len(str))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s|%s=%s", str, qs, str)))
+	}
+	return dataset
+}
+
+func genReverseDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	for range n {
+		k := 1 + rng.Int()%maxLen
+		data := make([]rune, k)
+		for i := range k {
+			data[i] = vocab[rng.Int()%len(vocab)]
+		}
+		str := string(data)
+		slices.Reverse(data)
+		rev := string(data)
+		qs := strings.Repeat("?", len(str))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s|%s=%s", str, qs, rev)))
+	}
+	return dataset
+}
+
+func genIndexDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	for range n {
+		k := 1 + rng.Int()%maxLen
+		data := make([]rune, k)
+		for i := range k {
+			data[i] = vocab[rng.Int()%len(vocab)]
+		}
+		str := string(data)
+		ix := rng.Int() % k
+		ch := data[ix]
+		dataset = append(dataset, []rune(fmt.Sprintf("%d%s|?=%c", ix, str, ch)))
+	}
+	return dataset
 }

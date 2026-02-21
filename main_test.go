@@ -92,7 +92,7 @@ func (q *testquad) eval2(us, vs []vector, i int) (vector, vector) {
 
 func TestSPSA(te *testing.T) {
 	const size = 100
-	t := testquad{
+	q := testquad{
 		minimum: make(vector, size),
 		us:      make(vector, 9),
 		vs:      make(vector, 9),
@@ -101,11 +101,11 @@ func TestSPSA(te *testing.T) {
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
 	for i := range size {
-		t.minimum[i] = rng.Float64() * 10
+		q.minimum[i] = rng.Float64() * 10
 		theta[i] = -rng.Float64() * 10
 	}
-	spsa(&t, theta, 4, 2000, 0.005, 0.0001, seed)
-	loss := t.eval(theta)
+	spsa(&q, theta, 4, 2000, 0.005, 0.0001, seed)
+	loss := q.eval(theta)
 	if loss > 0.001 {
 		fmt.Printf("SPSA loss: %f, seed: %d\n", loss, seed)
 		te.Fatal("SPSA failed to find minima")
@@ -115,13 +115,13 @@ func TestSPSA(te *testing.T) {
 func TestIntegration(te *testing.T) {
 	var seed int64 = 7359
 	rng := rand.New(rand.NewSource(seed))
-	t := train(16, 5, 2,
-		generateCopyTask([]rune("123"), 2, 30, rng),
-		generateCopyTask([]rune("123"), 2, 10, rng),
+	m := train(16, 5, 2,
+		genCopyDataset([]rune("123"), 2, 30, rng),
+		genCopyDataset([]rune("123"), 2, 10, rng),
 		4, 1000, 8, 4, 0.01, 0.00001, seed)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
-		toks, _ := t.predict(ctx)
+		toks, _ := m.predict(ctx)
 		actual := string(toks[len(expected)+1 : len(expected)*2+1])
 		if expected != actual {
 			te.Fatalf("Integration %s != %s", expected, actual)
@@ -140,28 +140,28 @@ func TestIntegration(te *testing.T) {
 }
 
 func TestPointLoss(te *testing.T) {
-	t := newT(4, 7, 2, []rune("abc|?"))
-	t.rand(rand.New(rand.NewSource(7357)))
-	tr := newTraining(t)
+	m := newModel(4, 7, 2, []rune("abc|?"))
+	m.rand(rand.New(rand.NewSource(7357)))
+	t := newTraining(m)
 	p := func(r, c int) float64 {
-		d, _, cols, s := unmat(t.L)
+		d, _, cols, s := unmat(m.L)
 		sum := 0.0
 		for i := range cols {
 			sum += math.Exp(d[r*s+i])
 		}
 		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
 	}
-	actual := tr.pointLoss(t, []rune("bc|??=bc"))
+	actual := t.pointLoss(m, []rune("bc|??=bc"))
 	expected := (p(3, 1) + p(4, 2)) / 2.0
 	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
-	actual = tr.pointLoss(t, []rune("cba|???=cba"))
+	actual = t.pointLoss(m, []rune("cba|???=cba"))
 	expected = (p(4, 2) + p(5, 1) + p(6, 0)) / 3.0
 	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
-	actual = tr.pointLoss(t, []rune("a|?=a"))
+	actual = t.pointLoss(m, []rune("a|?=a"))
 	expected = (p(2, 0)) / 1.0
 	if math.Abs(actual-expected) > 0.000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
@@ -235,76 +235,76 @@ func TestAddMatV(te *testing.T) {
 }
 
 func TestBlocksE2E(te *testing.T) {
-	t := newT(4, 3, 2, []rune("abc"))
-	t.rand(rand.New(rand.NewSource(7357)))
-	t.XS = testMat([][]float64{
+	m := newModel(4, 3, 2, []rune("abc"))
+	m.rand(rand.New(rand.NewSource(7357)))
+	m.XS = testMat([][]float64{
 		{0.2, -0.34, 1.2, -0.5},
 		{-0.6, 0.1, 0.2, 0.6},
 		{2, 1, 0, -1},
 	})
-	t.bias2 = vector{1, 2, 3}
-	t.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4}
-	t.blocks[0].bias1 = vector{-0.1, -0.2, 0.3, 0.4}
+	m.bias2 = vector{1, 2, 3}
+	m.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4}
+	m.blocks[0].bias1 = vector{-0.1, -0.2, 0.3, 0.4}
 	mat34 := makeMat(3, 4)
 	mat33 := makeMat(3, 3)
-	t.run()
+	m.run()
 
-	assertEq(t.blocks[0].XS0, t.XS, "0.xs0", te)
+	assertEq(m.blocks[0].XS0, m.XS, "0.xs0", te)
 
-	layerNorm(mat34, t.blocks[0].XS0, t.blocks[0].gamma0, t.blocks[0].beta0)
-	assertEq(mat34, t.blocks[0].XS1, "0.xs1", te)
+	layerNorm(mat34, m.blocks[0].XS0, m.blocks[0].gamma0, m.blocks[0].beta0)
+	assertEq(mat34, m.blocks[0].XS1, "0.xs1", te)
 
-	mulMat(mat34, t.blocks[0].XS1, t.blocks[0].queries)
-	assertEq(mat34, t.blocks[0].Q, "0.Q", te)
+	mulMat(mat34, m.blocks[0].XS1, m.blocks[0].queries)
+	assertEq(mat34, m.blocks[0].Q, "0.Q", te)
 
-	mulMat(mat34, t.blocks[0].XS1, t.blocks[0].keys)
-	assertEq(mat34, t.blocks[0].K, "0.K", te)
+	mulMat(mat34, m.blocks[0].XS1, m.blocks[0].keys)
+	assertEq(mat34, m.blocks[0].K, "0.K", te)
 
-	mulMat(mat34, t.blocks[0].XS1, t.blocks[0].values)
-	assertEq(mat34, t.blocks[0].V, "0.V", te)
+	mulMat(mat34, m.blocks[0].XS1, m.blocks[0].values)
+	assertEq(mat34, m.blocks[0].V, "0.V", te)
 
-	mulMatT(mat33, t.blocks[0].Q, t.blocks[0].K)
+	mulMatT(mat33, m.blocks[0].Q, m.blocks[0].K)
 	mulMatK(mat33, 1/math.Sqrt(4))
-	assertEq(mat33, t.blocks[0].QK, "0.QK", te)
+	assertEq(mat33, m.blocks[0].QK, "0.QK", te)
 
-	softmaxT(mat33, t.blocks[0].QK)
-	assertEq(mat33, t.blocks[0].S, "0.S", te)
+	softmaxT(mat33, m.blocks[0].QK)
+	assertEq(mat33, m.blocks[0].S, "0.S", te)
 
-	mulMat(mat34, t.blocks[0].S, t.blocks[0].V)
-	assertEq(mat34, t.blocks[0].SV, "0.SV", te)
+	mulMat(mat34, m.blocks[0].S, m.blocks[0].V)
+	assertEq(mat34, m.blocks[0].SV, "0.SV", te)
 
-	mulMat(mat34, t.blocks[0].SV, t.blocks[0].proj)
-	assertEq(mat34, t.blocks[0].P, "0.P", te)
-
-	mat34.Zero()
-	addMatM(mat34, t.blocks[0].XS0, t.blocks[0].P)
-	assertEq(mat34, t.blocks[0].R0, "0.R1", te)
+	mulMat(mat34, m.blocks[0].SV, m.blocks[0].proj)
+	assertEq(mat34, m.blocks[0].P, "0.P", te)
 
 	mat34.Zero()
-	layerNorm(mat34, t.blocks[0].R0, t.blocks[0].gamma1, t.blocks[0].beta1)
-	assertEq(mat34, t.blocks[0].XS2, "0.xs2", te)
+	addMatM(mat34, m.blocks[0].XS0, m.blocks[0].P)
+	assertEq(mat34, m.blocks[0].R0, "0.R1", te)
 
-	mulMat(mat34, t.blocks[0].XS2, t.blocks[0].input)
-	addMatV(mat34, t.blocks[0].bias0)
-	assertEq(mat34, t.blocks[0].I, "0.I", te)
+	mat34.Zero()
+	layerNorm(mat34, m.blocks[0].R0, m.blocks[0].gamma1, m.blocks[0].beta1)
+	assertEq(mat34, m.blocks[0].XS2, "0.xs2", te)
 
-	mapMat(mat34, t.blocks[0].I, ReLU)
-	assertEq(mat34, t.blocks[0].A, "0.A", te)
+	mulMat(mat34, m.blocks[0].XS2, m.blocks[0].input)
+	addMatV(mat34, m.blocks[0].bias0)
+	assertEq(mat34, m.blocks[0].I, "0.I", te)
 
-	mulMat(mat34, t.blocks[0].A, t.blocks[0].hidden)
-	addMatV(mat34, t.blocks[0].bias1)
-	assertEq(mat34, t.blocks[0].H, "0.H", te)
+	mapMat(mat34, m.blocks[0].I, ReLU)
+	assertEq(mat34, m.blocks[0].A, "0.A", te)
 
-	addMatM(mat34, t.blocks[0].H, t.blocks[0].R0)
-	assertEq(mat34, t.blocks[0].R1, "0.R2", te)
+	mulMat(mat34, m.blocks[0].A, m.blocks[0].hidden)
+	addMatV(mat34, m.blocks[0].bias1)
+	assertEq(mat34, m.blocks[0].H, "0.H", te)
 
-	assertEq(t.blocks[1].XS0, t.blocks[0].R1, "1.xs0", te)
+	addMatM(mat34, m.blocks[0].H, m.blocks[0].R0)
+	assertEq(mat34, m.blocks[0].R1, "0.R2", te)
 
-	mulMat(mat33, t.blocks[1].R1, t.linear)
-	addMatV(mat33, t.bias2)
-	assertEq(t.L, mat33, "t.L", te)
+	assertEq(m.blocks[1].XS0, m.blocks[0].R1, "1.xs0", te)
 
-	d, _, _, _ := unmat(t.L)
+	mulMat(mat33, m.blocks[1].R1, m.linear)
+	addMatV(mat33, m.bias2)
+	assertEq(m.L, mat33, "t.L", te)
+
+	d, _, _, _ := unmat(m.L)
 	for _, x := range d {
 		if math.Abs(x) < 0.001 {
 			te.Fatal("t.L = 0")
@@ -313,52 +313,52 @@ func TestBlocksE2E(te *testing.T) {
 }
 
 func TestHeatmaps(te *testing.T) {
-	t := newT(4, 3, 1, []rune("abc"))
-	t.linear = testMat([][]float64{
+	m := newModel(4, 3, 1, []rune("abc"))
+	m.linear = testMat([][]float64{
 		{1, 1, 1},
 		{1, 1, -1},
 		{1, 1, -1},
 		{1, 1, 2},
 	})
-	t.L = testMat([][]float64{
+	m.L = testMat([][]float64{
 		{-1, -1, -1},
 		{-1, -1, 1},
 		{-1, -1, -1},
 	})
-	t.blocks[0].XS0 = testMat([][]float64{
+	m.blocks[0].XS0 = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].P = testMat([][]float64{
+	m.blocks[0].P = testMat([][]float64{
 		{1, 0, 0, 1},
 		{-1, 1, 1, 0},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].R0 = testMat([][]float64{
+	m.blocks[0].R0 = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 1, 0},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].H = testMat([][]float64{
+	m.blocks[0].H = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
 	})
-	t.blocks[0].R1 = testMat([][]float64{
+	m.blocks[0].R1 = testMat([][]float64{
 		{1, 0, 0, 1},
 		{0, 1, 0, 2},
 		{0, 0, 1, 3},
 	})
-	heatmaps := t.calcHeatmap(1, []matrix{
-		t.blocks[0].XS0,
-		t.blocks[0].P,
-		t.blocks[0].R0,
-		t.blocks[0].H,
-		t.blocks[0].R1,
+	heatmaps := m.calcHeatmap(1, []matrix{
+		m.blocks[0].XS0,
+		m.blocks[0].P,
+		m.blocks[0].R0,
+		m.blocks[0].H,
+		m.blocks[0].R1,
 	})
-	t.prompt = []rune("abc")
-	t.printHeatmap([]int{1})
+	m.prompt = []rune("abc")
+	m.printHeatmap([]int{1})
 	assertEq(testMat(heatmaps), [][]float64{
 		{0, -0.2, 0, 0.8},
 		{-0.2, -0.2, -0.2, 0},
@@ -369,8 +369,8 @@ func TestHeatmaps(te *testing.T) {
 }
 
 func TestLoss(te *testing.T) {
-	t := newT(4, 4, 1, []rune("abcd"))
-	t.L = testMat([][]float64{
+	m := newModel(4, 4, 1, []rune("abcd"))
+	m.L = testMat([][]float64{
 		{1, 2, 3, -9},
 		{2, 1.6, 1, 0.1},
 		{5, -8, -13},
@@ -378,21 +378,21 @@ func TestLoss(te *testing.T) {
 		{-3.14, 7.77, 0},
 	})
 	p := func(r, c int) float64 {
-		d, _, cols, s := unmat(t.L)
+		d, _, cols, s := unmat(m.L)
 		sum := 0.0
 		for i := range cols {
 			sum += math.Exp(d[r*s+i])
 		}
 		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
 	}
-	t.ys = []int{1, 0, 2, 0, 2}
-	loss := t.loss()
+	m.ys = []int{1, 0, 2, 0, 2}
+	loss := m.loss()
 	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
 	if math.Abs(loss-expected) > 0.0001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}
-	t.ys = []int{-1, 1, 2, -1, -1}
-	loss = t.loss()
+	m.ys = []int{-1, 1, 2, -1, -1}
+	loss = m.loss()
 	expected = (p(1, 1) + p(2, 2)) / 2.0
 	if math.Abs(loss-expected) > 0.0001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
@@ -400,25 +400,25 @@ func TestLoss(te *testing.T) {
 }
 
 func TestLoadXs(te *testing.T) {
-	t := newT(4, 3, 1, []rune("abc"))
-	t.tokens = testMat([][]float64{
+	m := newModel(4, 3, 1, []rune("abc"))
+	m.tokens = testMat([][]float64{
 		{1, 0, 0, 0},
 		{0, 1, 0, 0},
 		{0, 0, 1, 0},
 	})
-	t.positions = testMat([][]float64{
+	m.positions = testMat([][]float64{
 		{0, 0, 0, -0.5},
 		{0, -0.1, 0.1, 0},
 		{0, 0, 0, 0.5},
 	})
-	t.loadXs([]rune("bac"))
-	assertEq(t.XS, [][]float64{
+	m.loadXs([]rune("bac"))
+	assertEq(m.XS, [][]float64{
 		{0, 1, 0, -0.5},
 		{1, -0.1, 0.1, 0},
 		{0, 0, 1, 0.5},
 	}, "LoadXS", te)
-	t.loadXs([]rune("cb"))
-	assertEq(t.XS, [][]float64{
+	m.loadXs([]rune("cb"))
+	assertEq(m.XS, [][]float64{
 		{0, 0, 1, -0.5},
 		{0, 0.9, 0.1, 0},
 		{0, 0, 0, 0},
@@ -445,14 +445,14 @@ func TestMatrixInit(te *testing.T) {
 			}
 		}
 	}
-	t := newT(4, 3, 2, []rune("abc"))
-	assert(t.tokens, func(f float64) bool { return f == 0 })
-	assert(t.XS, func(f float64) bool { return f == 0 })
+	m := newModel(4, 3, 2, []rune("abc"))
+	assert(m.tokens, func(f float64) bool { return f == 0 })
+	assert(m.XS, func(f float64) bool { return f == 0 })
 
-	t.rand(rand.New(rand.NewSource(7357)))
-	assert(t.tokens, func(f float64) bool { return f != 0 })
-	assert(t.positions, func(f float64) bool { return f != 0 })
-	for _, b := range t.blocks {
+	m.rand(rand.New(rand.NewSource(7357)))
+	assert(m.tokens, func(f float64) bool { return f != 0 })
+	assert(m.positions, func(f float64) bool { return f != 0 })
+	for _, b := range m.blocks {
 		assert(b.gamma0, func(f float64) bool { return f == 1 })
 		assert(b.beta0, func(f float64) bool { return f == 0 })
 		assert(b.keys, func(f float64) bool { return f != 0 })
@@ -466,17 +466,17 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.hidden, func(f float64) bool { return f != 0 })
 		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
-	assert(t.linear, func(f float64) bool { return f != 0 })
-	assert(t.bias2, func(f float64) bool { return f == 0 })
+	assert(m.linear, func(f float64) bool { return f != 0 })
+	assert(m.bias2, func(f float64) bool { return f == 0 })
 
-	theta := make(vector, t.size())
+	theta := make(vector, m.size())
 	for i := range theta {
 		theta[i] = 7357
 	}
-	t.apply(theta)
-	assert(t.tokens, func(f float64) bool { return f == 7357 })
-	assert(t.positions, func(f float64) bool { return f == 7357 })
-	for _, b := range t.blocks {
+	m.apply(theta)
+	assert(m.tokens, func(f float64) bool { return f == 7357 })
+	assert(m.positions, func(f float64) bool { return f == 7357 })
+	for _, b := range m.blocks {
 		assert(b.gamma0, func(f float64) bool { return f == 7357 })
 		assert(b.beta0, func(f float64) bool { return f == 7357 })
 		assert(b.keys, func(f float64) bool { return f == 7357 })
@@ -490,27 +490,27 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.hidden, func(f float64) bool { return f == 7357 })
 		assert(b.bias1, func(f float64) bool { return f == 7357 })
 	}
-	assert(t.linear, func(f float64) bool { return f == 7357 })
-	assert(t.bias2, func(f float64) bool { return f == 7357 })
+	assert(m.linear, func(f float64) bool { return f == 7357 })
+	assert(m.bias2, func(f float64) bool { return f == 7357 })
 
 	for i := range theta {
 		theta[i] = 0
 	}
 	assert(theta, func(f float64) bool { return f == 0 })
-	t.dump(theta)
+	m.dump(theta)
 	assert(theta, func(f float64) bool { return f == 7357 })
 
-	theta1 := make(vector, t.size())
-	theta2 := make(vector, t.size())
-	t.rand(rand.New(rand.NewSource(7737)))
-	t.bias2 = vector{1, 1, 1}
-	t.blocks[0].bias0 = vector{2, 2, 2, 2}
-	t.blocks[0].bias1 = vector{3, 3, 3, 3}
-	t.blocks[0].beta0 = vector{4, 4, 4, 4}
-	t.blocks[0].beta1 = vector{5, 5, 5, 5}
-	t.dump(theta1)
-	t.apply(theta1)
-	t.dump(theta2)
+	theta1 := make(vector, m.size())
+	theta2 := make(vector, m.size())
+	m.rand(rand.New(rand.NewSource(7737)))
+	m.bias2 = vector{1, 1, 1}
+	m.blocks[0].bias0 = vector{2, 2, 2, 2}
+	m.blocks[0].bias1 = vector{3, 3, 3, 3}
+	m.blocks[0].beta0 = vector{4, 4, 4, 4}
+	m.blocks[0].beta1 = vector{5, 5, 5, 5}
+	m.dump(theta1)
+	m.apply(theta1)
+	m.dump(theta2)
 	for i := range theta1 {
 		if theta1[i] != theta2[i] {
 			te.Fatalf("apply != dump, %f != %f\n", theta1[i], theta2[i])

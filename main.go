@@ -22,6 +22,8 @@ func main() {
 	vsize := flag.Int("v", 0, "size of the validation set")
 	dmodel := flag.Int("dmodel", 0, "d_model")
 	context := flag.Int("ctx", 0, "context")
+	dattn := flag.Int("dattn", 0, "dattn")
+	attn := flag.Int("attn", 1, "attn")
 	blocks := flag.Int("blocks", 1, "blocks")
 	lr := flag.Float64("lr", 0.0001, "learning rate")
 	spsa := flag.Int("spsa", 8, "SPSA samples")
@@ -44,8 +46,16 @@ func main() {
 		model := load(*modelpath)
 		model.solve([]rune(*prompt))
 	case "train":
+		if *dattn == 0 {
+			*dattn = *dmodel
+		}
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-		model := train(*dmodel, *context, *blocks, trainingSet, validationSet, *spsa, *iters, *ubatches, *uiters, *lr, *eps, *seed)
+		model := train(
+			*dmodel, *context, *dattn, *attn, *blocks,
+			trainingSet, validationSet,
+			*spsa, *iters, *ubatches, *uiters, *lr, *eps,
+			*seed,
+		)
 		store(model, *modelpath)
 	case "gen":
 		if len(*vocab) == 0 {
@@ -98,6 +108,8 @@ func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {
 type stored struct {
 	DModel  int
 	Context int
+	DAttn   int
+	Attn    int
 	Blocks  int
 	Vocab   []rune
 	Params  vector
@@ -107,6 +119,8 @@ func store(m *model, path string) {
 	stored := &stored{}
 	stored.DModel = m.dModel
 	stored.Context = m.context
+	stored.DAttn = m.blocks[0].dAttn
+	stored.Attn = m.blocks[0].attn
 	stored.Blocks = len(m.blocks)
 	stored.Vocab = m.vocab
 	stored.Params = make(vector, m.size())
@@ -129,7 +143,7 @@ func load(path string) *model {
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	decoder.Decode(stored)
-	model := newModel(stored.DModel, stored.Context, stored.Blocks, stored.Vocab)
+	model := newModel(stored.DModel, stored.Context, stored.DAttn, stored.Attn, stored.Blocks, stored.Vocab)
 	model.apply(stored.Params)
 	return model
 }

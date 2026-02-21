@@ -156,13 +156,13 @@ func (t *training) eval2(us, vs []vector, i int) (vector, vector) {
 }
 
 func train(
-	dModel, context, blocks int,
+	dModel, context, dAttn, attn, blocks int,
 	data, validation [][]rune,
 	spsaSamples, iters, ubatches, uiters int,
 	lr, eps float64,
 	seed int64,
 ) *model {
-	m := newModel(dModel, context, blocks, getVocab(data))
+	m := newModel(dModel, context, dAttn, attn, blocks, getVocab(data))
 	t := newTraining(m)
 	t.iters = iters
 	now := time.Now().UnixMilli()

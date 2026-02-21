@@ -32,14 +32,16 @@ type model struct {
 
 type block struct {
 	dModel int
+	dAttn  int
+	attn   int
 	// pre-attention LayerNorm parameters
 	gamma0 vector
 	beta0  vector
 
 	// attention parameters
-	keys    matrix
-	queries matrix
-	values  matrix
+	queries []matrix
+	keys    []matrix
+	values  []matrix
 	proj    matrix
 
 	// pre-MLP LayerNorm parameters
@@ -59,12 +61,13 @@ type block struct {
 	XS2 matrix
 
 	// attention values
-	K  matrix
-	Q  matrix
-	V  matrix
-	QK matrix
-	S  matrix
-	SV matrix
+	Q  []matrix
+	K  []matrix
+	V  []matrix
+	QK []matrix
+	S  []matrix
+	SV []matrix
+	CV matrix
 	P  matrix
 
 	// residual values
@@ -77,7 +80,7 @@ type block struct {
 	H matrix
 }
 
-func newModel(dModel, ctx, blocks int, vocab []rune) *model {
+func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 	dVocab := len(vocab)
 	m := model{
 		context: ctx,
@@ -89,7 +92,7 @@ func newModel(dModel, ctx, blocks int, vocab []rune) *model {
 
 	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		m.blocks[i] = newB(dModel, ctx, ReLU)
+		m.blocks[i] = newB(dModel, ctx, dAttn, attn, ReLU)
 	}
 
 	m.linear = makeMat(dModel, dVocab)
@@ -102,9 +105,11 @@ func newModel(dModel, ctx, blocks int, vocab []rune) *model {
 	return &m
 }
 
-func newB(dModel, ctx int, activation func(float64) float64) *block {
+func newB(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
 	b := block{
 		dModel: dModel,
+		dAttn:  dAttn,
+		attn:   attn,
 	}
 
 	b.XS0 = makeMat(ctx, dModel)
@@ -113,10 +118,15 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 	b.beta0 = make(vector, dModel)
 	b.XS1 = makeMat(ctx, dModel)
 
-	b.queries = makeMat(dModel, dModel)
-	b.keys = makeMat(dModel, dModel)
-	b.values = makeMat(dModel, dModel)
-	b.proj = makeMat(dModel, dModel)
+	b.queries = make([]matrix, attn)
+	b.keys = make([]matrix, attn)
+	b.values = make([]matrix, attn)
+	for i := range attn {
+		b.queries[i] = makeMat(dModel, dAttn)
+		b.keys[i] = makeMat(dModel, dAttn)
+		b.values[i] = makeMat(dModel, dAttn)
+	}
+	b.proj = makeMat(attn*dAttn, dModel)
 
 	b.gamma1 = make(vector, dModel)
 	b.beta1 = make(vector, dModel)
@@ -128,12 +138,21 @@ func newB(dModel, ctx int, activation func(float64) float64) *block {
 	b.hidden = makeMat(dModel, dModel)
 	b.bias1 = make(vector, dModel)
 
-	b.K = makeMat(ctx, dModel)
-	b.Q = makeMat(ctx, dModel)
-	b.V = makeMat(ctx, dModel)
-	b.QK = makeMat(ctx, ctx)
-	b.S = makeMat(ctx, ctx)
-	b.SV = makeMat(ctx, dModel)
+	b.Q = make([]matrix, attn)
+	b.K = make([]matrix, attn)
+	b.V = make([]matrix, attn)
+	b.QK = make([]matrix, attn)
+	b.S = make([]matrix, attn)
+	b.SV = make([]matrix, attn)
+	for i := range attn {
+		b.Q[i] = makeMat(ctx, dAttn)
+		b.K[i] = makeMat(ctx, dAttn)
+		b.V[i] = makeMat(ctx, dAttn)
+		b.QK[i] = makeMat(ctx, ctx)
+		b.S[i] = makeMat(ctx, ctx)
+		b.SV[i] = makeMat(ctx, dAttn)
+	}
+	b.CV = makeMat(ctx, attn*dAttn)
 	b.P = makeMat(ctx, dModel)
 	b.R0 = makeMat(ctx, dModel)
 	b.R1 = makeMat(ctx, dModel)
@@ -158,15 +177,18 @@ func (m *model) run() {
 func (b *block) run() {
 	// attention
 	layerNorm(b.XS1, b.XS0, b.gamma0, b.beta0)
-	mulMat(b.Q, b.XS1, b.queries)
-	mulMat(b.K, b.XS1, b.keys)
-	mulMat(b.V, b.XS1, b.values)
-	mulMatT(b.QK, b.Q, b.K)
-	d := 1 / math.Sqrt(float64(b.dModel))
-	mulMatK(b.QK, d)
-	softmaxT(b.S, b.QK)
-	mulMat(b.SV, b.S, b.V)
-	mulMat(b.P, b.SV, b.proj)
+	for i := range b.attn {
+		mulMat(b.Q[i], b.XS1, b.queries[i])
+		mulMat(b.K[i], b.XS1, b.keys[i])
+		mulMat(b.V[i], b.XS1, b.values[i])
+		mulMatT(b.QK[i], b.Q[i], b.K[i])
+		d := 1 / math.Sqrt(float64(b.dAttn))
+		mulMatK(b.QK[i], d)
+		softmaxT(b.S[i], b.QK[i])
+		mulMat(b.SV[i], b.S[i], b.V[i])
+	}
+	catMat(b.CV, b.SV)
+	mulMat(b.P, b.CV, b.proj)
 	addMatM(b.R0, b.XS0, b.P)
 	// mlp
 	layerNorm(b.XS2, b.R0, b.gamma1, b.beta1)
@@ -196,7 +218,11 @@ func (m *model) loss() float64 {
 }
 
 func (m *model) clone() *model {
-	return newModel(m.dModel, m.context, len(m.blocks), m.vocab)
+	return newModel(
+		m.dModel, m.context,
+		m.blocks[0].dAttn, m.blocks[0].attn,
+		len(m.blocks), m.vocab,
+	)
 }
 
 func (m *model) size() int {
@@ -214,9 +240,9 @@ func (m *model) size() int {
 func (b *block) size() int {
 	return len(b.gamma0) + len(b.beta0) +
 		len(b.gamma1) + len(b.beta1) +
-		len(b.queries.RawMatrix().Data) +
-		len(b.keys.RawMatrix().Data) +
-		len(b.values.RawMatrix().Data) +
+		len(b.queries[0].RawMatrix().Data)*b.attn +
+		len(b.keys[0].RawMatrix().Data)*b.attn +
+		len(b.values[0].RawMatrix().Data)*b.attn +
 		len(b.proj.RawMatrix().Data) +
 		len(b.input.RawMatrix().Data) +
 		len(b.bias0) +
@@ -336,9 +362,11 @@ func (m *model) rand(rng *rand.Rand) {
 		for i := range b.beta1 {
 			b.beta1[i] = 0
 		}
-		mat(b.keys, 0.2)
-		mat(b.queries, 0.2)
-		mat(b.values, 0.2)
+		for i := range b.attn {
+			mat(b.queries[i], 0.2)
+			mat(b.keys[i], 0.2)
+			mat(b.values[i], 0.2)
+		}
 		mat(b.proj, 0.2)
 		mat(b.input, 0.2)
 		mat(b.hidden, 0.2)
@@ -373,9 +401,11 @@ func (m *model) apply(theta vector) {
 		vec(b.beta0)
 		vec(b.gamma1)
 		vec(b.beta1)
-		mat(b.keys)
-		mat(b.queries)
-		mat(b.values)
+		for i := range b.attn {
+			mat(b.queries[i])
+			mat(b.keys[i])
+			mat(b.values[i])
+		}
 		mat(b.proj)
 		mat(b.input)
 		vec(b.bias0)
@@ -407,9 +437,11 @@ func (m *model) dump(theta vector) {
 		vec(b.beta0)
 		vec(b.gamma1)
 		vec(b.beta1)
-		mat(b.keys)
-		mat(b.queries)
-		mat(b.values)
+		for i := range b.attn {
+			mat(b.queries[i])
+			mat(b.keys[i])
+			mat(b.values[i])
+		}
 		mat(b.proj)
 		mat(b.input)
 		vec(b.bias0)

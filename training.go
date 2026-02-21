@@ -100,8 +100,7 @@ func (t *training) eval(m *model, theta vector) float64 {
 	return loss / float64(len(t.ubatches))
 }
 
-func (t *training) validate(m *model, theta vector) float64 {
-	m.apply(theta)
+func (t *training) validate(m *model) float64 {
 	loss := 0.0
 	for _, data := range t.validation {
 		loss += t.pointLoss(m, data)
@@ -149,11 +148,7 @@ func (t *training) eval2(us, vs []vector, i int) (vector, vector) {
 	}
 	wg.Wait()
 	if i%250 == 0 {
-		w := us[0]
-		if i%500 == 0 {
-			w = vs[0]
-		}
-		loss := t.validate(t.models[0], w)
+		loss := t.validate(t.models[0])
 		fmt.Printf("\r              ")
 		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(t.iters)*100))
 	}

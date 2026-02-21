@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"slices"
@@ -13,7 +14,7 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "load", "train/load")
+	mode := flag.String("mode", "load", "train/load/eval/gen")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")
 	prompt := flag.String("prompt", "", "prompt")
@@ -68,6 +69,14 @@ func main() {
 		default:
 			log.Fatalf("unknown task %s", *task)
 		}
+	case "eval":
+		model := load(*modelpath)
+		validationSet, _ := readTrainingData(*datapath, *vsize, 0)
+		tr := newTraining(model)
+		tr.validation = validationSet
+		loss := tr.validate(model)
+		fmt.Printf("Loss: %.12f\n", loss)
+		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
 	default:
 		log.Fatalf("unknown mode %s", *mode)
 	}

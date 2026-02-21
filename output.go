@@ -9,17 +9,23 @@ import (
 func (m *model) printAttention() {
 	for bi, b := range m.blocks {
 		for i := range m.prompt {
-			fmt.Printf("%c ", m.prompt[i])
-			for j := range m.prompt {
-				fg, bg := 0, 0
-				fg = int(255 * b.S.At(i, j))
-				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
+			for a := range b.attn {
+				fmt.Printf("%c ", m.prompt[i])
+				for j := range m.prompt {
+					fg, bg := 0, 0
+					fg = int(255 * b.S[a].At(i, j))
+					fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
+				}
+				fmt.Printf("     ")
 			}
 			println()
 		}
 		fmt.Printf("   ")
-		for _, c := range m.prompt {
-			fmt.Printf("%c  ", c)
+		for range b.attn {
+			for _, c := range m.prompt {
+				fmt.Printf("%c  ", c)
+			}
+			fmt.Printf("       ")
 		}
 		println()
 		if bi < len(m.blocks)-1 {

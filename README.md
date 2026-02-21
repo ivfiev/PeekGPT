@@ -2,7 +2,7 @@
 Minimal from-scratch implementation of a simple transformer model.
 - Learnable token & position embeddings
 - LayerNorm
-- Single-head attention
+- Multi-head attention
 - Residuals
 - MLP
 - Multiple blocks

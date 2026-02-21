@@ -62,6 +62,26 @@ func mapMat(C, A matrix, f func(float64) float64) {
 	}, A)
 }
 
+func catMat(B matrix, As []matrix) {
+	db, rb, cb, sb := unmat(B)
+	_, ra, ca, _ := unmat(As[0])
+	if ra != rb || ca*len(As) != cb {
+		log.Panicf("catMat: bad dims %dx%d %dx%d\n", rb, cb, ra, ca)
+	}
+	for _, A := range As {
+		_, r, c, _ := unmat(A)
+		if ra != r || ca != c {
+			log.Panicf("catMat: bad dims %dx%d %dx%d\n", ra, ca, r, c)
+		}
+	}
+	for c, A := range As {
+		da, _, ca, sa := unmat(A)
+		for r := range rb {
+			copy(db[r*sb+c*ca:r*sb+(1+c)*ca], da[r*sa:r*sa+sa])
+		}
+	}
+}
+
 func printMat(A matrix) {
 	d, r, c, s := unmat(A)
 	for i := range r {

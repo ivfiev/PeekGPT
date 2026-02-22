@@ -168,6 +168,22 @@ func TestPointLoss(te *testing.T) {
 	}
 }
 
+func TestLoadYs(te *testing.T) {
+	m := newModel(4, 9, 4, 3, 2, []rune("012345|?"))
+	m.rand(rand.New(rand.NewSource(7357)))
+	t := newTraining(m)
+	t.pointLoss(m, []rune("4012345|?=4"))
+	expected := []int{-1, -1, -1, -1, -1, -1, -1, -1, 4}
+	if len(m.ys) != len(expected) {
+		te.Fatalf("%d != %d", len(m.ys), len(expected))
+	}
+	for i := range expected {
+		if m.ys[i] != expected[i] {
+			te.Fatalf("%d != %d", m.ys[i], expected[i])
+		}
+	}
+}
+
 func TestLayerNorm(te *testing.T) {
 	xs := testMat([][]float64{
 		{1, 0, 0, 1},
@@ -211,7 +227,7 @@ func TestBlockLayerNorm(te *testing.T) {
 	})
 	b.gamma0 = vector{1.1, 1.2, 1.3, 1.4}
 	b.beta0 = vector{0.5, 0.6, 0.7, -0.5}
-	b.run()
+	b.forward()
 	assertEq(b.XS1, [][]float64{
 		{2.405, -0.093, -0.051, -1.308},
 		{-0.135, -0.093, -0.051, 1.925},
@@ -248,7 +264,7 @@ func TestBlocksE2E(te *testing.T) {
 	mat34 := makeMat(3, 4)
 	mat33 := makeMat(3, 3)
 	mat32 := makeMat(3, 2)
-	m.run()
+	m.forward()
 
 	assertEq(m.blocks[0].XS0, m.XS, "0.xs0", te)
 

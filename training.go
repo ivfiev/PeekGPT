@@ -27,12 +27,12 @@ type training struct {
 }
 
 func newTraining(m *model) *training {
-	models := make([]*model, 32)
+	models := make([]*model, 64)
 	models[0] = m
 	return &training{
 		models: models,
-		us:     make(vector, 32),
-		vs:     make(vector, 32),
+		us:     make(vector, 64),
+		vs:     make(vector, 64),
 	}
 }
 
@@ -116,7 +116,7 @@ func (t *training) pointLoss(m *model, data []rune) float64 {
 	}
 	m.loadXs(data[:target])
 	t.loadYs(m, data, 1+separator, 1+target, len(data)-target-1)
-	m.run()
+	m.forward()
 	return m.loss()
 }
 

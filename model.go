@@ -163,18 +163,18 @@ func newB(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block
 	return &b
 }
 
-func (m *model) run() {
+func (m *model) forward() {
 	xs := m.XS
 	for _, b := range m.blocks {
 		b.loadXs(xs)
-		b.run()
+		b.forward()
 		xs = b.R1
 	}
 	mulMat(m.L, xs, m.linear)
 	addMatV(m.L, m.bias2)
 }
 
-func (b *block) run() {
+func (b *block) forward() {
 	// attention
 	layerNorm(b.XS1, b.XS0, b.gamma0, b.beta0)
 	for i := range b.attn {
@@ -286,7 +286,7 @@ func (b *block) loadXs(xs matrix) {
 
 func (m *model) predict(ctx []rune) ([]rune, vector) {
 	m.loadXs(ctx)
-	m.run()
+	m.forward()
 	d, _, c, s := unmat(m.L)
 	nexts := make([]rune, len(ctx))
 	probs := make(vector, len(ctx))
@@ -305,7 +305,7 @@ func (m *model) generate(ctx []rune, n int) {
 	d, _, c, s := unmat(m.L)
 	for range n {
 		m.loadXs(ctx)
-		m.run()
+		m.forward()
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
 		i := softSample(d[tokIx*s : tokIx*s+c])
@@ -318,7 +318,7 @@ func (m *model) generate(ctx []rune, n int) {
 
 func (m *model) solve(ctx []rune) {
 	m.loadXs(ctx)
-	m.run()
+	m.forward()
 	d, _, c, s := unmat(m.L)
 	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)

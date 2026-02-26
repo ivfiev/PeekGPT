@@ -28,6 +28,14 @@ type model struct {
 
 	// logits
 	L matrix
+
+	// derivatives
+	dL      matrix
+	dlinear matrix
+	dbias2  vector
+
+	dtokens    matrix
+	dpositions matrix
 }
 
 type block struct {
@@ -78,6 +86,49 @@ type block struct {
 	I matrix
 	A matrix
 	H matrix
+
+	// derivatives
+	dR1 matrix
+	dH  matrix
+
+	dhidden matrix
+	dbias1  vector
+	dA      matrix
+	dI      matrix
+	dinput  matrix
+	dbias0  vector
+
+	dR0         matrix
+	dXS2        matrix
+	hatXS2      matrix // remove?
+	dXS2ThatXS2 matrix
+	dhatXS2     matrix
+	dgamma1     vector
+	dbeta1      vector
+
+	dP       matrix
+	dXS0     matrix
+	dCV      matrix
+	dproj    matrix
+	dSV      []matrix
+	dS       []matrix
+	dQ       []matrix
+	dK       []matrix
+	dV       []matrix
+	dQK      []matrix
+	dqueries []matrix
+	dkeys    []matrix
+	dvalues  []matrix
+	dXS1q    []matrix
+	dXS1k    []matrix
+	dXS1v    []matrix
+
+	dXS1        matrix
+	hatXS1      matrix // remove?
+	dhatXS1     matrix // remove?
+	dXS1ThatXS1 matrix
+	dgamma0     vector
+	dbeta0      vector
 }
 
 func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
@@ -92,7 +143,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 
 	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		m.blocks[i] = newB(dModel, ctx, dAttn, attn, ReLU)
+		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, ReLU)
 	}
 
 	m.linear = makeMat(dModel, dVocab)
@@ -102,10 +153,17 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 	m.ys = make([]int, ctx)
 	m.vocab = vocab
 
+	m.dL = makeMat(ctx, dVocab)
+	m.dlinear = makeMat(dModel, dVocab)
+	m.dbias2 = make(vector, dVocab)
+
+	m.dtokens = makeMat(dVocab, dModel)
+	m.dpositions = makeMat(ctx, dModel)
+
 	return &m
 }
 
-func newB(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
+func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
 	b := block{
 		dModel: dModel,
 		dAttn:  dAttn,
@@ -159,6 +217,60 @@ func newB(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block
 	b.I = makeMat(ctx, dModel)
 	b.A = makeMat(ctx, dModel)
 	b.H = makeMat(ctx, dModel)
+
+	b.dR1 = makeMat(dModel, ctx)
+	b.dH = makeMat(dModel, ctx)
+	b.dhidden = makeMat(dModel, dModel)
+	b.dbias1 = make(vector, dModel)
+	b.dA = makeMat(dModel, dModel)
+	b.dI = makeMat(dModel, dModel)
+	b.dinput = makeMat(dModel, dModel)
+	b.dbias0 = make(vector, dModel)
+
+	b.dR0 = makeMat(ctx, dModel) // big one
+	b.dXS2 = makeMat(ctx, dModel)
+	b.hatXS2 = makeMat(ctx, dModel)
+	b.dXS2ThatXS2 = makeMat(dModel, dModel)
+	b.dhatXS2 = makeMat(ctx, dModel)
+	b.dgamma1 = make(vector, dModel)
+	b.dbeta1 = make(vector, dModel)
+
+	b.dP = makeMat(ctx, dModel)
+	b.dXS0 = makeMat(ctx, dModel)
+	b.dCV = makeMat(ctx, attn*dAttn)
+	b.dproj = makeMat(attn*dAttn, dModel)
+	b.dSV = make([]matrix, attn)
+	b.dS = make([]matrix, attn)
+	b.dQ = make([]matrix, attn)
+	b.dK = make([]matrix, attn)
+	b.dV = make([]matrix, attn)
+	b.dQK = make([]matrix, attn)
+	b.dqueries = make([]matrix, attn)
+	b.dkeys = make([]matrix, attn)
+	b.dvalues = make([]matrix, attn)
+	b.dXS1q = make([]matrix, attn)
+	b.dXS1k = make([]matrix, attn)
+	b.dXS1v = make([]matrix, attn)
+	for i := range attn {
+		b.dSV[i] = makeMat(ctx, dAttn)
+		b.dS[i] = makeMat(ctx, ctx)
+		b.dQ[i] = makeMat(ctx, dAttn)
+		b.dK[i] = makeMat(ctx, dAttn)
+		b.dV[i] = makeMat(ctx, dAttn)
+		b.dQK[i] = makeMat(ctx, ctx)
+		b.dqueries[i] = makeMat(dModel, dAttn)
+		b.dkeys[i] = makeMat(dModel, dAttn)
+		b.dvalues[i] = makeMat(dModel, dAttn)
+		b.dXS1q[i] = makeMat(ctx, dModel)
+		b.dXS1k[i] = makeMat(ctx, dModel)
+		b.dXS1v[i] = makeMat(ctx, dModel)
+	}
+	b.dXS1 = makeMat(ctx, dModel)
+	b.hatXS1 = makeMat(ctx, dModel)
+	b.dXS1ThatXS1 = makeMat(dModel, dModel)
+	b.dhatXS1 = makeMat(ctx, dModel)
+	b.dgamma0 = make(vector, dModel)
+	b.dbeta0 = make(vector, dModel)
 
 	return &b
 }

@@ -219,7 +219,7 @@ func TestSoftmax(te *testing.T) {
 }
 
 func TestBlockLayerNorm(te *testing.T) {
-	b := newB(4, 3, 4, 1, ReLU)
+	b := newBlock(4, 3, 4, 1, ReLU)
 	b.XS0 = testMat([][]float64{
 		{1, 0, 0, 0},
 		{0, 0, 0, 1},

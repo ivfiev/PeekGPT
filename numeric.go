@@ -36,6 +36,10 @@ func mulMatT(C, A, B matrix) {
 	C.Mul(A, B.T())
 }
 
+func mulTmat(C, A, B matrix) {
+	C.Mul(A.T(), B)
+}
+
 func mulMatK(a matrix, k float64) {
 	a.Scale(k, a)
 }
@@ -87,7 +91,7 @@ func printMat(A matrix) {
 	for i := range r {
 		fmt.Printf("[")
 		for j := range c {
-			fmt.Printf("%6.3f ", d[i*s+j])
+			fmt.Printf("%9.6f ", d[i*s+j])
 		}
 		fmt.Printf("]\n")
 	}
@@ -96,7 +100,7 @@ func printMat(A matrix) {
 func printVec(v vector) {
 	fmt.Printf("[")
 	for _, x := range v {
-		fmt.Printf("%6.3f ", x)
+		fmt.Printf("%9.6f ", x)
 	}
 	fmt.Printf("]\n")
 }

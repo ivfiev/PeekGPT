@@ -2,99 +2,209 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"slices"
 	"strings"
-	"time"
 )
 
-func main() {
-	mode := flag.String("mode", "load", "train/load/eval/gen")
-	datapath := flag.String("data", "", "training/validation data path")
-	modelpath := flag.String("model", "", "model path")
-	prompt := flag.String("prompt", "", "prompt")
-	tsize := flag.Int("t", 0, "size of the training set")
-	vsize := flag.Int("v", 0, "size of the validation set")
-	dmodel := flag.Int("dmodel", 0, "d_model")
-	context := flag.Int("ctx", 0, "context")
-	dattn := flag.Int("dattn", 0, "dattn")
-	attn := flag.Int("attn", 1, "attn")
-	blocks := flag.Int("blocks", 1, "blocks")
-	lr := flag.Float64("lr", 0.0001, "learning rate")
-	spsa := flag.Int("spsa", 8, "SPSA samples")
-	eps := flag.Float64("eps", 0.000001, "eps")
-	iters := flag.Int("iters", 1000, "training iterations")
-	ubatches := flag.Int("ub", 32, "micro-batches")
-	uiters := flag.Int("ui", 16, "micro-iters")
-	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
-	task := flag.String("task", "", "task data type")
-	vocab := flag.String("vocab", "", "vocab")
-	n := flag.Int("n", 0, "n")
-	maxLen := flag.Int("max", 0, "max")
-	flag.Parse()
-
-	switch *mode {
-	case "load":
-		if *prompt == "" {
-			log.Panicln("empty prompt")
-		}
-		model := load(*modelpath)
-		model.solve([]rune(*prompt))
-	case "train":
-		if *dattn == 0 {
-			*dattn = *dmodel
-		}
-		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-		model := train(
-			*dmodel, *context, *dattn, *attn, *blocks,
-			trainingSet, validationSet,
-			*spsa, *iters, *ubatches, *uiters, *lr, *eps,
-			*seed,
-		)
-		store(model, *modelpath)
-	case "gen":
-		if len(*vocab) == 0 {
-			log.Fatal("empty vocab")
-		}
-		runes := []rune(*vocab)
-		rng := rand.New(rand.NewSource(*seed))
-		switch *task {
-		case "copy":
-			for _, data := range genCopyDataset(runes, *maxLen, *n, rng) {
-				fmt.Println(string(data))
+func assert(f func(*model) (any, any), label string, args ...any) {
+	m := newModel(3, 3, 2, 2, 2, []rune("abcde"))
+	m.rand(rand.New(rand.NewSource(239)))
+	m.loadXs([]rune("dd"))
+	m.ys = []int{1, 2, -1}
+	m.forward()
+	target, dtarget := f(m)
+	const eps = 1e-6
+	switch target := target.(type) {
+	case matrix:
+		_, rows, cols, _ := unmat(target)
+		expected := makeMat(rows, cols)
+		for r := range rows {
+			for c := range cols {
+				target.Set(r, c, target.At(r, c)+eps)
+				if len(args) == 0 || args[0].(bool) {
+					if len(args) == 2 && args[1].(bool) {
+						m.loadXs([]rune("dd"))
+					}
+					m.forward()
+				}
+				plus := m.loss()
+				target.Set(r, c, target.At(r, c)-2*eps)
+				if len(args) == 0 || args[0].(bool) {
+					if len(args) == 2 && args[1].(bool) {
+						m.loadXs([]rune("dd"))
+					}
+					m.forward()
+				}
+				minus := m.loss()
+				expected.Set(r, c, (plus-minus)/(2*eps))
+				target.Set(r, c, target.At(r, c)+eps)
 			}
-		case "reverse":
-			for _, data := range genReverseDataset(runes, *maxLen, *n, rng) {
-				fmt.Println(string(data))
-			}
-		case "index":
-			for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
-				fmt.Println(string(data))
-			}
-		case "kv":
-			split := strings.Split(*vocab, ",")
-			for _, data := range genKVdataset([]rune(split[0]), []rune(split[1]), *maxLen, *n, rng) {
-				fmt.Println(string(data))
-			}
-		default:
-			log.Fatalf("unknown task %s", *task)
 		}
-	case "eval":
-		model := load(*modelpath)
-		validationSet, _ := readTrainingData(*datapath, *vsize, 0)
-		tr := newTraining(model)
-		tr.validation = validationSet
-		loss := tr.validate(model)
-		fmt.Printf("Loss: %.12f\n", loss)
-		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
-	default:
-		log.Fatalf("unknown mode %s", *mode)
+		fmt.Printf("%s expected\n", label)
+		printMat(expected)
+		fmt.Printf("%s actual\n", label)
+		m.forward()
+		m.backward()
+		printMat(dtarget.(matrix))
+	case vector:
+		expected := make(vector, len(target))
+		for i := range target {
+			target[i] += eps
+			m.forward()
+			plus := m.loss()
+			target[i] -= 2 * eps
+			m.forward()
+			minus := m.loss()
+			expected[i] = (plus - minus) / (2 * eps)
+		}
+		fmt.Printf("%s expected\n", label)
+		printVec(expected)
+		fmt.Printf("%s actual\n", label)
+		m.forward()
+		m.backward()
+		printVec(dtarget.(vector))
 	}
+	println()
+}
+
+func main() {
+	assert(func(m *model) (any, any) { return m.L, m.dL }, "logits", false)
+	assert(func(m *model) (any, any) { return m.linear, m.dlinear }, "linear")
+	assert(func(m *model) (any, any) { return m.bias2, m.dbias2 }, "bias")
+
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].hidden, m.blocks[len(m.blocks)-1].dhidden }, "last block's hidden")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].bias1, m.blocks[len(m.blocks)-1].dbias1 }, "last block's bias1")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].input, m.blocks[len(m.blocks)-1].dinput }, "last block's input")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].bias0, m.blocks[len(m.blocks)-1].dbias0 }, "last block's bias0")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].gamma1, m.blocks[len(m.blocks)-1].dgamma1 }, "last block's gamma1")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].beta1, m.blocks[len(m.blocks)-1].dbeta1 }, "last block's beta1")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].proj, m.blocks[len(m.blocks)-1].dproj }, "last block's proj")
+
+	assert(func(m *model) (any, any) {
+		return m.blocks[len(m.blocks)-1].queries[0], m.blocks[len(m.blocks)-1].dqueries[0]
+	}, "last block's queries")
+	assert(func(m *model) (any, any) {
+		return m.blocks[len(m.blocks)-1].queries[1], m.blocks[len(m.blocks)-1].dqueries[1]
+	}, "last block's queries")
+
+	assert(func(m *model) (any, any) {
+		return m.blocks[len(m.blocks)-1].keys[0], m.blocks[len(m.blocks)-1].dkeys[0]
+	}, "last block's keys")
+	assert(func(m *model) (any, any) {
+		return m.blocks[len(m.blocks)-1].keys[1], m.blocks[len(m.blocks)-1].dkeys[1]
+	}, "last block's keys")
+
+	assert(func(m *model) (any, any) {
+		return m.blocks[len(m.blocks)-1].values[0], m.blocks[len(m.blocks)-1].dvalues[0]
+	}, "last block's values")
+	assert(func(m *model) (any, any) {
+		return m.blocks[len(m.blocks)-1].values[1], m.blocks[len(m.blocks)-1].dvalues[1]
+	}, "last block's values")
+
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].gamma0, m.blocks[len(m.blocks)-1].dgamma0 }, "last block's gamma0")
+	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].beta0, m.blocks[len(m.blocks)-1].dbeta0 }, "last block's beta0")
+
+	assert(func(m *model) (any, any) { return m.blocks[0].gamma0, m.blocks[0].dgamma0 }, "first block's gamma0")
+	assert(func(m *model) (any, any) { return m.blocks[0].beta0, m.blocks[0].dbeta0 }, "first block's beta0")
+
+	assert(func(m *model) (any, any) {
+		return m.blocks[0].values[0], m.blocks[0].dvalues[0]
+	}, "first block's values")
+	assert(func(m *model) (any, any) {
+		return m.blocks[0].values[1], m.blocks[0].dvalues[1]
+	}, "first block's values")
+
+	assert(func(m *model) (any, any) { return m.tokens, m.dtokens }, "tokens", true, true)
+	assert(func(m *model) (any, any) { return m.positions, m.dpositions }, "positions", true, true)
+	// dloss/dlogits
+	// dloss/dlogits * dlogits/dlinear
+	// dloss/dR1 = dloss/dlogits * dlogits/dXS * dXS/dR1
+
+	// mode := flag.String("mode", "load", "train/load/eval/gen")
+	// datapath := flag.String("data", "", "training/validation data path")
+	// modelpath := flag.String("model", "", "model path")
+	// prompt := flag.String("prompt", "", "prompt")
+	// tsize := flag.Int("t", 0, "size of the training set")
+	// vsize := flag.Int("v", 0, "size of the validation set")
+	// dmodel := flag.Int("dmodel", 0, "d_model")
+	// context := flag.Int("ctx", 0, "context")
+	// dattn := flag.Int("dattn", 0, "dattn")
+	// attn := flag.Int("attn", 1, "attn")
+	// blocks := flag.Int("blocks", 1, "blocks")
+	// lr := flag.Float64("lr", 0.0001, "learning rate")
+	// spsa := flag.Int("spsa", 8, "SPSA samples")
+	// eps := flag.Float64("eps", 0.000001, "eps")
+	// iters := flag.Int("iters", 1000, "training iterations")
+	// ubatches := flag.Int("ub", 32, "micro-batches")
+	// uiters := flag.Int("ui", 16, "micro-iters")
+	// seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
+	// task := flag.String("task", "", "task data type")
+	// vocab := flag.String("vocab", "", "vocab")
+	// n := flag.Int("n", 0, "n")
+	// maxLen := flag.Int("max", 0, "max")
+	// flag.Parse()
+	//
+	// switch *mode {
+	// case "load":
+	// 	if *prompt == "" {
+	// 		log.Panicln("empty prompt")
+	// 	}
+	// 	model := load(*modelpath)
+	// 	model.solve([]rune(*prompt))
+	// case "train":
+	// 	if *dattn == 0 {
+	// 		*dattn = *dmodel
+	// 	}
+	// 	trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+	// 	model := train(
+	// 		*dmodel, *context, *dattn, *attn, *blocks,
+	// 		trainingSet, validationSet,
+	// 		*spsa, *iters, *ubatches, *uiters, *lr, *eps,
+	// 		*seed,
+	// 	)
+	// 	store(model, *modelpath)
+	// case "gen":
+	// 	if len(*vocab) == 0 {
+	// 		log.Fatal("empty vocab")
+	// 	}
+	// 	runes := []rune(*vocab)
+	// 	rng := rand.New(rand.NewSource(*seed))
+	// 	switch *task {
+	// 	case "copy":
+	// 		for _, data := range genCopyDataset(runes, *maxLen, *n, rng) {
+	// 			fmt.Println(string(data))
+	// 		}
+	// 	case "reverse":
+	// 		for _, data := range genReverseDataset(runes, *maxLen, *n, rng) {
+	// 			fmt.Println(string(data))
+	// 		}
+	// 	case "index":
+	// 		for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
+	// 			fmt.Println(string(data))
+	// 		}
+	// 	case "kv":
+	// 		split := strings.Split(*vocab, ",")
+	// 		for _, data := range genKVdataset([]rune(split[0]), []rune(split[1]), *maxLen, *n, rng) {
+	// 			fmt.Println(string(data))
+	// 		}
+	// 	default:
+	// 		log.Fatalf("unknown task %s", *task)
+	// 	}
+	// case "eval":
+	// 	model := load(*modelpath)
+	// 	validationSet, _ := readTrainingData(*datapath, *vsize, 0)
+	// 	tr := newTraining(model)
+	// 	tr.validation = validationSet
+	// 	loss := tr.validate(model)
+	// 	fmt.Printf("Loss: %.12f\n", loss)
+	// 	fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
+	// default:
+	// 	log.Fatalf("unknown mode %s", *mode)
+	// }
 }
 
 func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {

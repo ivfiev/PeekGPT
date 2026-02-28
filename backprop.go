@@ -6,8 +6,8 @@ import (
 )
 
 func (m *model) backward() {
-	m.dLogits()
-	m.dUnembed()
+	dLogits(m)
+	dUnembed(m)
 	mulMatT(m.blocks[len(m.blocks)-1].dR1, m.dL, m.unembed)
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		m.blocks[i].backward()
@@ -18,7 +18,7 @@ func (m *model) backward() {
 	// l(m.L(unembed(...)))
 	// l'(m.L(...)) * m.L'(unembed..)
 	// dL/dLogits * dLogits/dlinear * dlinear/...
-	m.dEmbeds()
+	dEmbed(m)
 }
 
 func (b *block) backward() {
@@ -42,19 +42,19 @@ func (b *block) backward() {
 	b.dXS2ThatXS2.Apply(func(i, j int, v float64) float64 {
 		return b.dXS2.At(i, j) * b.hatXS2.At(i, j)
 	}, b.dXS2ThatXS2)
-	b.layerNormBackward(b.dR0, b.R0, b.dXS2, b.hatXS2, b.dhatXS2, b.dXS2ThatXS2, b.gamma1, b.dgamma1, b.dbeta1)
+	layerNormBackward(b, b.dR0, b.R0, b.dXS2, b.hatXS2, b.dhatXS2, b.dXS2ThatXS2, b.gamma1, b.dgamma1, b.dbeta1)
 
 	b.dP.Copy(b.dR0)
 	b.dXS0.Copy(b.dR0)
 	mulMatT(b.dCV, b.dP, b.proj)
 	mulTmat(b.dproj, b.CV, b.dP)
-	b.dSVs()
+	dSVs(b)
 	b.dXS1.Zero()
 	for i := range b.attn {
 		// d := 1.0 / math.Sqrt(float64(b.attn))
 		mulMatT(b.dS[i], b.dSV[i], b.V[i])
 		mulTmat(b.dV[i], b.S[i], b.dSV[i])
-		b.softmaxBackward(b.dQK[i], b.dS[i], b.S[i])
+		softmaxBackward(b, b.dQK[i], b.dS[i], b.S[i])
 		mulMat(b.dQ[i], b.dQK[i], b.K[i])
 		mulTmat(b.dK[i], b.dQK[i], b.Q[i])
 		mulTmat(b.dqueries[i], b.XS1, b.dQ[i])
@@ -77,10 +77,10 @@ func (b *block) backward() {
 	b.dXS1ThatXS1.Apply(func(i, j int, v float64) float64 {
 		return b.dXS1.At(i, j) * b.hatXS1.At(i, j)
 	}, b.dXS1ThatXS1)
-	b.layerNormBackward(b.dXS0, b.XS0, b.dXS1, b.hatXS1, b.dhatXS1, b.dXS1ThatXS1, b.gamma0, b.dgamma0, b.dbeta0)
+	layerNormBackward(b, b.dXS0, b.XS0, b.dXS1, b.hatXS1, b.dhatXS1, b.dXS1ThatXS1, b.gamma0, b.dgamma0, b.dbeta0)
 }
 
-func (m *model) dLogits() {
+func dLogits(m *model) {
 	m.dL.Zero()
 	count := 0.0
 	d, rl, cl := unmat(m.L)
@@ -105,7 +105,7 @@ func (m *model) dLogits() {
 	}
 }
 
-func (b *block) dSVs() {
+func dSVs(b *block) {
 	_, rows, cols := unmat(b.dCV)
 	for r := range rows {
 		for c := range cols {
@@ -114,14 +114,14 @@ func (b *block) dSVs() {
 	}
 }
 
-func (m *model) dUnembed() {
+func dUnembed(m *model) {
 	m.dunembed.Zero()
 	block := m.blocks[len(m.blocks)-1]
 	mulTmat(m.dunembed, block.R1, m.dL)
 	sumCols(m.dbias2, m.dL)
 }
 
-func (m *model) dEmbeds() {
+func dEmbed(m *model) {
 	m.dtokens.Zero()
 	m.dpositions.Zero()
 	for i, c := range m.prompt {
@@ -133,7 +133,7 @@ func (m *model) dEmbeds() {
 	}
 }
 
-func (b *block) layerNormBackward(dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix, gamma, dgamma, dbeta vector) {
+func layerNormBackward(b *block, dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix, gamma, dgamma, dbeta vector) {
 	sumCols(dgamma, dXSThatXS)
 	sumCols(dbeta, dXS)
 	// dL/dXS
@@ -165,7 +165,7 @@ func (b *block) layerNormBackward(dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matri
 	}
 }
 
-func (b *block) softmaxBackward(dQK, dS, S matrix) {
+func softmaxBackward(b *block, dQK, dS, S matrix) {
 	scale := 1.0 / math.Sqrt(float64(b.dAttn))
 	_, rows, cols := unmat(S)
 	for i := range rows {

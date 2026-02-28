@@ -39,9 +39,10 @@ type model struct {
 }
 
 type block struct {
-	dModel int
-	dAttn  int
-	attn   int
+	dModel  int
+	context int
+	dAttn   int
+	attn    int
 	// pre-attention LayerNorm parameters
 	gamma0 vector
 	beta0  vector
@@ -165,9 +166,10 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 
 func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
 	b := block{
-		dModel: dModel,
-		dAttn:  dAttn,
-		attn:   attn,
+		dModel:  dModel,
+		context: ctx,
+		dAttn:   dAttn,
+		attn:    attn,
 	}
 
 	b.XS0 = makeMat(ctx, dModel)
@@ -218,19 +220,19 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.A = makeMat(ctx, dModel)
 	b.H = makeMat(ctx, dModel)
 
-	b.dR1 = makeMat(dModel, ctx)
-	b.dH = makeMat(dModel, ctx)
+	b.dR1 = makeMat(ctx, dModel)
+	b.dH = makeMat(ctx, dModel)
 	b.dhidden = makeMat(dModel, dModel)
 	b.dbias1 = make(vector, dModel)
-	b.dA = makeMat(dModel, dModel)
-	b.dI = makeMat(dModel, dModel)
+	b.dA = makeMat(ctx, dModel)
+	b.dI = makeMat(ctx, dModel)
 	b.dinput = makeMat(dModel, dModel)
 	b.dbias0 = make(vector, dModel)
 
 	b.dR0 = makeMat(ctx, dModel) // big one
 	b.dXS2 = makeMat(ctx, dModel)
 	b.hatXS2 = makeMat(ctx, dModel)
-	b.dXS2ThatXS2 = makeMat(dModel, dModel)
+	b.dXS2ThatXS2 = makeMat(ctx, dModel)
 	b.dhatXS2 = makeMat(ctx, dModel)
 	b.dgamma1 = make(vector, dModel)
 	b.dbeta1 = make(vector, dModel)
@@ -267,7 +269,7 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	}
 	b.dXS1 = makeMat(ctx, dModel)
 	b.hatXS1 = makeMat(ctx, dModel)
-	b.dXS1ThatXS1 = makeMat(dModel, dModel)
+	b.dXS1ThatXS1 = makeMat(ctx, dModel)
 	b.dhatXS1 = makeMat(ctx, dModel)
 	b.dgamma0 = make(vector, dModel)
 	b.dbeta0 = make(vector, dModel)
@@ -562,6 +564,43 @@ func (m *model) dump(theta vector) {
 	}
 	mat(m.linear)
 	vec(m.bias2)
+	if M != len(theta) {
+		log.Fatal("mismatch between len(theta) and model size")
+	}
+}
+
+func (m *model) grad(theta vector) {
+	M := 0
+	vec := func(v vector) {
+		copy(theta[M:M+len(v)], v)
+		M += len(v)
+	}
+	mat := func(m matrix) {
+		d, _, _, _ := unmat(m)
+		copy(theta[M:M+len(d)], d)
+		M += len(d)
+	}
+	// TODO - abstract this ordering away
+	mat(m.dtokens)
+	mat(m.dpositions)
+	for _, b := range m.blocks {
+		vec(b.dgamma0)
+		vec(b.dbeta0)
+		vec(b.dgamma1)
+		vec(b.dbeta1)
+		for i := range b.attn {
+			mat(b.dqueries[i])
+			mat(b.dkeys[i])
+			mat(b.dvalues[i])
+		}
+		mat(b.dproj)
+		mat(b.dinput)
+		vec(b.dbias0)
+		mat(b.dhidden)
+		vec(b.dbias1)
+	}
+	mat(m.dlinear)
+	vec(m.dbias2)
 	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}

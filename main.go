@@ -11,9 +11,9 @@ import (
 )
 
 func assert(f func(*model) (any, any), label string, args ...any) {
-	m := newModel(3, 3, 2, 2, 2, []rune("abcde"))
-	m.rand(rand.New(rand.NewSource(239)))
-	m.loadXs([]rune("dd"))
+	m := newModel(4, 3, 4, 1, 1, []rune("abcde"))
+	m.rand(rand.New(rand.NewSource(7357)))
+	m.loadXs([]rune("ab"))
 	m.ys = []int{1, 2, -1}
 	m.forward()
 	target, dtarget := f(m)
@@ -72,54 +72,83 @@ func assert(f func(*model) (any, any), label string, args ...any) {
 }
 
 func main() {
-	assert(func(m *model) (any, any) { return m.L, m.dL }, "logits", false)
 	assert(func(m *model) (any, any) { return m.linear, m.dlinear }, "linear")
 	assert(func(m *model) (any, any) { return m.bias2, m.dbias2 }, "bias")
 
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].hidden, m.blocks[len(m.blocks)-1].dhidden }, "last block's hidden")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].bias1, m.blocks[len(m.blocks)-1].dbias1 }, "last block's bias1")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].input, m.blocks[len(m.blocks)-1].dinput }, "last block's input")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].bias0, m.blocks[len(m.blocks)-1].dbias0 }, "last block's bias0")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].gamma1, m.blocks[len(m.blocks)-1].dgamma1 }, "last block's gamma1")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].beta1, m.blocks[len(m.blocks)-1].dbeta1 }, "last block's beta1")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].proj, m.blocks[len(m.blocks)-1].dproj }, "last block's proj")
-
-	assert(func(m *model) (any, any) {
-		return m.blocks[len(m.blocks)-1].queries[0], m.blocks[len(m.blocks)-1].dqueries[0]
-	}, "last block's queries")
-	assert(func(m *model) (any, any) {
-		return m.blocks[len(m.blocks)-1].queries[1], m.blocks[len(m.blocks)-1].dqueries[1]
-	}, "last block's queries")
-
-	assert(func(m *model) (any, any) {
-		return m.blocks[len(m.blocks)-1].keys[0], m.blocks[len(m.blocks)-1].dkeys[0]
-	}, "last block's keys")
-	assert(func(m *model) (any, any) {
-		return m.blocks[len(m.blocks)-1].keys[1], m.blocks[len(m.blocks)-1].dkeys[1]
-	}, "last block's keys")
-
-	assert(func(m *model) (any, any) {
-		return m.blocks[len(m.blocks)-1].values[0], m.blocks[len(m.blocks)-1].dvalues[0]
-	}, "last block's values")
-	assert(func(m *model) (any, any) {
-		return m.blocks[len(m.blocks)-1].values[1], m.blocks[len(m.blocks)-1].dvalues[1]
-	}, "last block's values")
-
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].gamma0, m.blocks[len(m.blocks)-1].dgamma0 }, "last block's gamma0")
-	assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].beta0, m.blocks[len(m.blocks)-1].dbeta0 }, "last block's beta0")
-
-	assert(func(m *model) (any, any) { return m.blocks[0].gamma0, m.blocks[0].dgamma0 }, "first block's gamma0")
-	assert(func(m *model) (any, any) { return m.blocks[0].beta0, m.blocks[0].dbeta0 }, "first block's beta0")
-
-	assert(func(m *model) (any, any) {
-		return m.blocks[0].values[0], m.blocks[0].dvalues[0]
-	}, "first block's values")
-	assert(func(m *model) (any, any) {
-		return m.blocks[0].values[1], m.blocks[0].dvalues[1]
-	}, "first block's values")
-
 	assert(func(m *model) (any, any) { return m.tokens, m.dtokens }, "tokens", true, true)
 	assert(func(m *model) (any, any) { return m.positions, m.dpositions }, "positions", true, true)
+
+	assert(func(m *model) (any, any) { return m.blocks[0].hidden, m.blocks[0].dhidden }, "hidden")
+	assert(func(m *model) (any, any) { return m.blocks[0].bias1, m.blocks[0].dbias1 }, "bias1")
+	assert(func(m *model) (any, any) { return m.blocks[0].input, m.blocks[0].dinput }, "input")
+	assert(func(m *model) (any, any) { return m.blocks[0].bias0, m.blocks[0].dbias0 }, "bias0")
+
+	assert(func(m *model) (any, any) { return m.blocks[0].gamma1, m.blocks[0].dgamma1 }, "gamma1")
+	assert(func(m *model) (any, any) { return m.blocks[0].beta1, m.blocks[0].dbeta1 }, "beta1")
+	//
+	assert(func(m *model) (any, any) { return m.blocks[0].proj, m.blocks[0].dproj }, "proj")
+
+	assert(func(m *model) (any, any) {
+		return m.blocks[0].queries[0], m.blocks[0].dqueries[0]
+	}, "queries")
+	assert(func(m *model) (any, any) {
+		return m.blocks[0].keys[0], m.blocks[0].dkeys[0]
+	}, "keys")
+	assert(func(m *model) (any, any) {
+		return m.blocks[0].values[0], m.blocks[0].dvalues[0]
+	}, "values")
+
+	assert(func(m *model) (any, any) { return m.blocks[0].gamma0, m.blocks[0].dgamma0 }, "gamma0")
+	assert(func(m *model) (any, any) { return m.blocks[0].beta0, m.blocks[0].dbeta0 }, "beta0")
+
+	// assert(func(m *model) (any, any) { return m.L, m.dL }, "logits", false)
+	// assert(func(m *model) (any, any) { return m.linear, m.dlinear }, "linear")
+	// assert(func(m *model) (any, any) { return m.bias2, m.dbias2 }, "bias")
+	//
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].hidden, m.blocks[len(m.blocks)-1].dhidden }, "last block's hidden")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].bias1, m.blocks[len(m.blocks)-1].dbias1 }, "last block's bias1")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].input, m.blocks[len(m.blocks)-1].dinput }, "last block's input")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].bias0, m.blocks[len(m.blocks)-1].dbias0 }, "last block's bias0")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].gamma1, m.blocks[len(m.blocks)-1].dgamma1 }, "last block's gamma1")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].beta1, m.blocks[len(m.blocks)-1].dbeta1 }, "last block's beta1")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].proj, m.blocks[len(m.blocks)-1].dproj }, "last block's proj")
+	//
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[len(m.blocks)-1].queries[0], m.blocks[len(m.blocks)-1].dqueries[0]
+	// }, "last block's queries")
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[len(m.blocks)-1].queries[1], m.blocks[len(m.blocks)-1].dqueries[1]
+	// }, "last block's queries")
+	//
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[len(m.blocks)-1].keys[0], m.blocks[len(m.blocks)-1].dkeys[0]
+	// }, "last block's keys")
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[len(m.blocks)-1].keys[1], m.blocks[len(m.blocks)-1].dkeys[1]
+	// }, "last block's keys")
+	//
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[len(m.blocks)-1].values[0], m.blocks[len(m.blocks)-1].dvalues[0]
+	// }, "last block's values")
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[len(m.blocks)-1].values[1], m.blocks[len(m.blocks)-1].dvalues[1]
+	// }, "last block's values")
+	//
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].gamma0, m.blocks[len(m.blocks)-1].dgamma0 }, "last block's gamma0")
+	// assert(func(m *model) (any, any) { return m.blocks[len(m.blocks)-1].beta0, m.blocks[len(m.blocks)-1].dbeta0 }, "last block's beta0")
+	//
+	// assert(func(m *model) (any, any) { return m.blocks[0].gamma0, m.blocks[0].dgamma0 }, "first block's gamma0")
+	// assert(func(m *model) (any, any) { return m.blocks[0].beta0, m.blocks[0].dbeta0 }, "first block's beta0")
+	//
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[0].values[0], m.blocks[0].dvalues[0]
+	// }, "first block's values")
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[0].values[1], m.blocks[0].dvalues[1]
+	// }, "first block's values")
+	//
+	// assert(func(m *model) (any, any) { return m.tokens, m.dtokens }, "tokens", true, true)
+	// assert(func(m *model) (any, any) { return m.positions, m.dpositions }, "positions", true, true)
 	// dloss/dlogits
 	// dloss/dlogits * dlogits/dlinear
 	// dloss/dR1 = dloss/dlogits * dlogits/dXS * dXS/dR1

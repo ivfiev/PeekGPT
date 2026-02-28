@@ -24,6 +24,7 @@ func makeMat(r, c int) matrix {
 }
 
 func unmat(A matrix) ([]float64, int, int, int) {
+	// TODO drop stride, but panic on C != S
 	raw := A.RawMatrix()
 	return raw.Data, raw.Rows, raw.Cols, raw.Stride
 }

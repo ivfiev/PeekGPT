@@ -581,3 +581,49 @@ func TestMatrixCat(te *testing.T) {
 		{-5, -6, 0.7, 0.8, 5, 6},
 	}, "catMat", te)
 }
+
+func TestBackprop(te *testing.T) {
+	const eps = 1e-7
+	m := newModel(4, 3, 2, 2, 3, []rune("abcde"))
+	// m := newModel(4, 3, 4, 1, 1, []rune("abcde"))
+	m.rand(rand.New(rand.NewSource(7357)))
+	expected := make(vector, m.size())
+	actual := make(vector, m.size())
+	finiteDiff := func(prompt []rune) {
+		theta := make(vector, m.size())
+		alpha := make(vector, m.size())
+		m.dump(theta)
+		m.dump(alpha)
+		for i := range theta {
+			theta[i] += eps
+			m.apply(theta)
+			m.loadXs(prompt)
+			m.forward()
+			plus := m.loss()
+			theta[i] -= 2 * eps
+			m.apply(theta)
+			m.loadXs(prompt)
+			m.forward()
+			minus := m.loss()
+			expected[i] = (plus - minus) / (2 * eps)
+			theta[i] += eps
+		}
+		m.apply(alpha)
+	}
+	backprop := func(prompt []rune) {
+		m.loadXs(prompt)
+		m.forward()
+		m.backward()
+		m.grad(actual)
+	}
+	m.ys = []int{1, 2, -1}
+	finiteDiff([]rune("ab"))
+	backprop([]rune("ab"))
+	for i := range m.size() {
+		e := expected[i]
+		a := actual[i]
+		if math.Abs(e-a) > eps {
+			te.Errorf("%d: %.9f != %.9f", i, e, a)
+		}
+	}
+}

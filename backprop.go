@@ -9,13 +9,19 @@ func (m *model) backward() {
 	m.dLogits()
 	m.dBias2()
 	m.dLinear()
-	mulMatT(m.blocks[1].dR1, m.dL, m.linear)
-	m.blocks[1].backward()
-	m.blocks[0].dR1.Copy(m.blocks[1].dXS0)
+	mulMatT(m.blocks[len(m.blocks)-1].dR1, m.dL, m.linear)
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		m.blocks[i].backward()
+		if i > 0 {
+			m.blocks[i-1].dR1.Copy(m.blocks[i].dXS0)
+		}
+	}
+	// m.blocks[1].backward()
+	// m.blocks[0].dR1.Copy(m.blocks[1].dXS0)
 	// m.blocks[0].dR1.Apply(func(i, j int, v float64) float64 {
 	// 	return v
 	// }, m.blocks[1].dXS0)
-	m.blocks[0].backward()
+	// m.blocks[0].backward()
 	// l(m.L(unembed(...)))
 	// l'(m.L(...)) * m.L'(unembed..)
 	// dL/dLogits * dLogits/dlinear * dlinear/...
@@ -24,7 +30,7 @@ func (m *model) backward() {
 	for i, c := range m.prompt {
 		v := slices.Index(m.vocab, c)
 		for j := range m.dModel {
-			m.dtokens.Set(v, j, m.blocks[0].dXS0.At(i, j)+m.dtokens.At(i, j))
+			m.dtokens.Set(v, j, m.blocks[0].dXS0.At(i, j)+m.dtokens.At(v, j))
 			m.dpositions.Set(i, j, m.blocks[0].dXS0.At(i, j))
 		}
 	}
@@ -195,27 +201,19 @@ func sumCols(v vector, A matrix) {
 
 func (b *block) layerNormBackward(T, XS matrix) {
 	const eps = 0.00001
-	ctx, dModel := 3, 3 // TODO unmat
-
+	ctx, dModel := b.context, b.dModel
 	for i := 0; i < ctx; i++ {
-		// 1️⃣ Compute row mean
 		mean := 0.0
 		for j := 0; j < dModel; j++ {
 			mean += XS.At(i, j)
 		}
 		mean /= float64(dModel)
-
-		// 2️⃣ Compute row variance
 		varsum := 0.0
 		for j := 0; j < dModel; j++ {
 			diff := XS.At(i, j) - mean
 			varsum += diff * diff
 		}
-
-		// 3️⃣ Compute stdInv
 		stdInv := 1.0 / math.Sqrt(varsum/float64(dModel)+eps)
-
-		// 4️⃣ Compute dhat = dXS2 * gamma1
 		sumDhat := 0.0
 		sumDhatHat := 0.0
 		for j := 0; j < dModel; j++ {
@@ -223,8 +221,6 @@ func (b *block) layerNormBackward(T, XS matrix) {
 			sumDhat += b.dhatXS2.At(i, j)
 			sumDhatHat += b.dhatXS2.At(i, j) * b.hatXS2.At(i, j)
 		}
-
-		// 5️⃣ Compute dR0 for this row
 		for j := 0; j < dModel; j++ {
 			val := (b.dhatXS2.At(i, j) - sumDhat/float64(dModel) - b.hatXS2.At(i, j)*sumDhatHat/float64(dModel)) * stdInv
 			T.Set(i, j, T.At(i, j)+val)
@@ -234,27 +230,19 @@ func (b *block) layerNormBackward(T, XS matrix) {
 
 func (b *block) layerNormBackward0(T, XS matrix) {
 	const eps = 0.00001
-	ctx, dModel := 3, 3 // TODO unmat
-
+	ctx, dModel := b.context, b.dModel
 	for i := 0; i < ctx; i++ {
-		// 1️⃣ Compute row mean
 		mean := 0.0
 		for j := 0; j < dModel; j++ {
 			mean += XS.At(i, j)
 		}
 		mean /= float64(dModel)
-
-		// 2️⃣ Compute row variance
 		varsum := 0.0
 		for j := 0; j < dModel; j++ {
 			diff := XS.At(i, j) - mean
 			varsum += diff * diff
 		}
-
-		// 3️⃣ Compute stdInv
 		stdInv := 1.0 / math.Sqrt(varsum/float64(dModel)+eps)
-
-		// 4️⃣ Compute dhat = dXS2 * gamma1
 		sumDhat := 0.0
 		sumDhatHat := 0.0
 		for j := 0; j < dModel; j++ {
@@ -262,8 +250,6 @@ func (b *block) layerNormBackward0(T, XS matrix) {
 			sumDhat += b.dhatXS1.At(i, j)
 			sumDhatHat += b.dhatXS1.At(i, j) * b.hatXS1.At(i, j)
 		}
-
-		// 5️⃣ Compute dR0 for this row
 		for j := 0; j < dModel; j++ {
 			val := (b.dhatXS1.At(i, j) - sumDhat/float64(dModel) - b.hatXS1.At(i, j)*sumDhatHat/float64(dModel)) * stdInv
 			T.Set(i, j, T.At(i, j)+val)

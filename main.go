@@ -26,11 +26,8 @@ func main() {
 	attn := flag.Int("attn", 1, "attn")
 	blocks := flag.Int("blocks", 1, "blocks")
 	lr := flag.Float64("lr", 0.0001, "learning rate")
-	spsa := flag.Int("spsa", 8, "SPSA samples")
-	eps := flag.Float64("eps", 0.000001, "eps")
 	iters := flag.Int("iters", 1000, "training iterations")
-	ubatches := flag.Int("ub", 32, "micro-batches")
-	uiters := flag.Int("ui", 16, "micro-iters")
+	ubatches := flag.Int("ub", 64, "micro-batches")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
 	task := flag.String("task", "", "task data type")
 	vocab := flag.String("vocab", "", "vocab")
@@ -53,7 +50,7 @@ func main() {
 		model := train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,
-			*spsa, *iters, *ubatches, *uiters, *lr, *eps,
+			*iters, *ubatches, *lr,
 			*seed,
 		)
 		store(model, *modelpath)
@@ -74,6 +71,11 @@ func main() {
 			}
 		case "index":
 			for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "kv":
+			split := strings.Split(*vocab, ",")
+			for _, data := range genKVdataset([]rune(split[0]), []rune(split[1]), *maxLen, *n, rng) {
 				fmt.Println(string(data))
 			}
 		default:
@@ -192,6 +194,39 @@ func genIndexDataset(vocab []rune, maxLen, n int, rng *rand.Rand) [][]rune {
 		ix := rng.Int() % k
 		ch := data[ix]
 		dataset = append(dataset, []rune(fmt.Sprintf("%d%s|?=%c", ix, str, ch)))
+	}
+	return dataset
+}
+
+func genKVdataset(vocabK, vocabV []rune, maxLen, n int, rng *rand.Rand) [][]rune {
+	dataset := make([][]rune, 0, n)
+	indexes := make([]int, 1+maxLen)
+	randIxs := func(n, m int) []int {
+		for i := range m {
+			indexes[i] = i
+		}
+		rng.Shuffle(m, func(i, j int) {
+			indexes[i], indexes[j] = indexes[j], indexes[i]
+		})
+		return indexes[:n]
+	}
+	for range n {
+		kv := 1 + rng.Int()%maxLen
+		q := 1 // + rng.Int()%kv
+		ixs := randIxs(kv, len(vocabK))
+		dict := make([]rune, 2*kv)
+		query := make([]rune, q)
+		answer := make([]rune, q)
+		for i := range kv {
+			dict[2*i] = vocabK[ixs[i]]
+			dict[2*i+1] = vocabV[rng.Int()%len(vocabV)]
+		}
+		ixs = randIxs(q, kv)
+		for i := range query {
+			query[i] = dict[2*ixs[i]]
+			answer[i] = dict[1+slices.Index(dict, query[i])]
+		}
+		dataset = append(dataset, []rune(fmt.Sprintf("%s%s|%s=%s", string(query), string(dict), strings.Repeat("?", len(query)), string(answer))))
 	}
 	return dataset
 }

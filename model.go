@@ -18,22 +18,31 @@ type model struct {
 
 	prompt []rune
 	XS     matrix // inputs
-	ys     []int  // outputs, used for loss
+	ys     []int  // output targets, used for loss
 
 	blocks []*block
 
 	// to-logit map parameters
-	linear matrix
-	bias2  vector
+	unembed matrix
+	bias2   vector
 
 	// logits
 	L matrix
+
+	// derivatives
+	dL       matrix
+	dunembed matrix
+	dbias2   vector
+
+	dtokens    matrix
+	dpositions matrix
 }
 
 type block struct {
-	dModel int
-	dAttn  int
-	attn   int
+	dModel  int
+	context int
+	dAttn   int
+	attn    int
 	// pre-attention LayerNorm parameters
 	gamma0 vector
 	beta0  vector
@@ -78,6 +87,49 @@ type block struct {
 	I matrix
 	A matrix
 	H matrix
+
+	// derivatives
+	dR1 matrix
+	dH  matrix
+
+	dhidden matrix
+	dbias1  vector
+	dA      matrix
+	dI      matrix
+	dinput  matrix
+	dbias0  vector
+
+	dR0         matrix
+	dXS2        matrix
+	hatXS2      matrix // remove?
+	dXS2ThatXS2 matrix
+	dhatXS2     matrix
+	dgamma1     vector
+	dbeta1      vector
+
+	dP       matrix
+	dXS0     matrix
+	dCV      matrix
+	dproj    matrix
+	dSV      []matrix
+	dS       []matrix
+	dQ       []matrix
+	dK       []matrix
+	dV       []matrix
+	dQK      []matrix
+	dqueries []matrix
+	dkeys    []matrix
+	dvalues  []matrix
+	dXS1q    []matrix
+	dXS1k    []matrix
+	dXS1v    []matrix
+
+	dXS1        matrix
+	hatXS1      matrix // remove?
+	dhatXS1     matrix // remove?
+	dXS1ThatXS1 matrix
+	dgamma0     vector
+	dbeta0      vector
 }
 
 func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
@@ -92,24 +144,32 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 
 	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		m.blocks[i] = newB(dModel, ctx, dAttn, attn, ReLU)
+		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, ReLU)
 	}
 
-	m.linear = makeMat(dModel, dVocab)
+	m.unembed = makeMat(dModel, dVocab)
 	m.bias2 = make(vector, dVocab)
 	m.L = makeMat(ctx, dVocab)
 
 	m.ys = make([]int, ctx)
 	m.vocab = vocab
 
+	m.dL = makeMat(ctx, dVocab)
+	m.dunembed = makeMat(dModel, dVocab)
+	m.dbias2 = make(vector, dVocab)
+
+	m.dtokens = makeMat(dVocab, dModel)
+	m.dpositions = makeMat(ctx, dModel)
+
 	return &m
 }
 
-func newB(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
+func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
 	b := block{
-		dModel: dModel,
-		dAttn:  dAttn,
-		attn:   attn,
+		dModel:  dModel,
+		context: ctx,
+		dAttn:   dAttn,
+		attn:    attn,
 	}
 
 	b.XS0 = makeMat(ctx, dModel)
@@ -160,21 +220,75 @@ func newB(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block
 	b.A = makeMat(ctx, dModel)
 	b.H = makeMat(ctx, dModel)
 
+	b.dR1 = makeMat(ctx, dModel)
+	b.dH = makeMat(ctx, dModel)
+	b.dhidden = makeMat(dModel, dModel)
+	b.dbias1 = make(vector, dModel)
+	b.dA = makeMat(ctx, dModel)
+	b.dI = makeMat(ctx, dModel)
+	b.dinput = makeMat(dModel, dModel)
+	b.dbias0 = make(vector, dModel)
+
+	b.dR0 = makeMat(ctx, dModel)
+	b.dXS2 = makeMat(ctx, dModel)
+	b.hatXS2 = makeMat(ctx, dModel)
+	b.dXS2ThatXS2 = makeMat(ctx, dModel)
+	b.dhatXS2 = makeMat(ctx, dModel)
+	b.dgamma1 = make(vector, dModel)
+	b.dbeta1 = make(vector, dModel)
+
+	b.dP = makeMat(ctx, dModel)
+	b.dXS0 = makeMat(ctx, dModel)
+	b.dCV = makeMat(ctx, attn*dAttn)
+	b.dproj = makeMat(attn*dAttn, dModel)
+	b.dSV = make([]matrix, attn)
+	b.dS = make([]matrix, attn)
+	b.dQ = make([]matrix, attn)
+	b.dK = make([]matrix, attn)
+	b.dV = make([]matrix, attn)
+	b.dQK = make([]matrix, attn)
+	b.dqueries = make([]matrix, attn)
+	b.dkeys = make([]matrix, attn)
+	b.dvalues = make([]matrix, attn)
+	b.dXS1q = make([]matrix, attn)
+	b.dXS1k = make([]matrix, attn)
+	b.dXS1v = make([]matrix, attn)
+	for i := range attn {
+		b.dSV[i] = makeMat(ctx, dAttn)
+		b.dS[i] = makeMat(ctx, ctx)
+		b.dQ[i] = makeMat(ctx, dAttn)
+		b.dK[i] = makeMat(ctx, dAttn)
+		b.dV[i] = makeMat(ctx, dAttn)
+		b.dQK[i] = makeMat(ctx, ctx)
+		b.dqueries[i] = makeMat(dModel, dAttn)
+		b.dkeys[i] = makeMat(dModel, dAttn)
+		b.dvalues[i] = makeMat(dModel, dAttn)
+		b.dXS1q[i] = makeMat(ctx, dModel)
+		b.dXS1k[i] = makeMat(ctx, dModel)
+		b.dXS1v[i] = makeMat(ctx, dModel)
+	}
+	b.dXS1 = makeMat(ctx, dModel)
+	b.hatXS1 = makeMat(ctx, dModel)
+	b.dXS1ThatXS1 = makeMat(ctx, dModel)
+	b.dhatXS1 = makeMat(ctx, dModel)
+	b.dgamma0 = make(vector, dModel)
+	b.dbeta0 = make(vector, dModel)
+
 	return &b
 }
 
-func (m *model) run() {
+func (m *model) forward() {
 	xs := m.XS
 	for _, b := range m.blocks {
 		b.loadXs(xs)
-		b.run()
+		b.forward()
 		xs = b.R1
 	}
-	mulMat(m.L, xs, m.linear)
+	mulMat(m.L, xs, m.unembed)
 	addMatV(m.L, m.bias2)
 }
 
-func (b *block) run() {
+func (b *block) forward() {
 	// attention
 	layerNorm(b.XS1, b.XS0, b.gamma0, b.beta0)
 	for i := range b.attn {
@@ -203,26 +317,18 @@ func (b *block) run() {
 func (m *model) loss() float64 {
 	loss := 0.0
 	count := 0
-	d, r, c, s := unmat(m.L)
+	d, r, c := unmat(m.L)
 	for i := range r {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*s : i*s+c]
+		row := d[i*c : i*c+c]
 		rowMax, _ := rowMax(row)
 		sum := rowSum(row, rowMax)
-		loss += -d[i*s+m.ys[i]] + rowMax + math.Log(sum)
+		loss += -d[i*c+m.ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(count)
-}
-
-func (m *model) clone() *model {
-	return newModel(
-		m.dModel, m.context,
-		m.blocks[0].dAttn, m.blocks[0].attn,
-		len(m.blocks), m.vocab,
-	)
 }
 
 func (m *model) size() int {
@@ -233,7 +339,7 @@ func (m *model) size() int {
 	return blocks +
 		len(m.tokens.RawMatrix().Data) +
 		len(m.positions.RawMatrix().Data) +
-		len(m.linear.RawMatrix().Data) +
+		len(m.unembed.RawMatrix().Data) +
 		len(m.bias2)
 }
 
@@ -260,24 +366,24 @@ func (m *model) loadXs(prompt []rune) {
 		b.XS1.Zero()
 		b.XS2.Zero()
 	}
-	dx, _, _, sx := unmat(m.XS)
-	dt, _, _, st := unmat(m.tokens)
-	dp, _, _, sp := unmat(m.positions)
+	dx, _, cx := unmat(m.XS)
+	dt, _, ct := unmat(m.tokens)
+	dp, _, cp := unmat(m.positions)
 	for posIx := range prompt {
 		vocIx := slices.Index(m.vocab, prompt[posIx])
 		if vocIx == -1 {
 			log.Panicf("loadXs: token %c is invalid", prompt[posIx])
 		}
 		for j := range m.dModel {
-			dx[posIx*sx+j] = dt[vocIx*st+j] + dp[posIx*sp+j]
+			dx[posIx*cx+j] = dt[vocIx*ct+j] + dp[posIx*cp+j]
 		}
 	}
 	m.prompt = prompt
 }
 
 func (b *block) loadXs(xs matrix) {
-	dxs, rxs, cxs, _ := unmat(xs)
-	dxs0, rxs0, cxs0, _ := unmat(b.XS0)
+	dxs, rxs, cxs := unmat(xs)
+	dxs0, rxs0, cxs0 := unmat(b.XS0)
 	if rxs != rxs0 || cxs != cxs0 {
 		log.Panic("Incompatible XS")
 	}
@@ -286,14 +392,14 @@ func (b *block) loadXs(xs matrix) {
 
 func (m *model) predict(ctx []rune) ([]rune, vector) {
 	m.loadXs(ctx)
-	m.run()
-	d, _, c, s := unmat(m.L)
+	m.forward()
+	d, _, c := unmat(m.L)
 	nexts := make([]rune, len(ctx))
 	probs := make(vector, len(ctx))
 	for tokIx := range len(ctx) {
-		rm, i := rowMax(d[s*tokIx : s*tokIx+c])
-		sum := rowSum(d[tokIx*s:tokIx*s+c], rm)
-		prob := math.Exp(d[tokIx*s+i]-rm) / sum
+		rm, i := rowMax(d[c*tokIx : c*tokIx+c])
+		sum := rowSum(d[tokIx*c:tokIx*c+c], rm)
+		prob := math.Exp(d[tokIx*c+i]-rm) / sum
 		nexts[tokIx] = m.vocab[i]
 		probs[tokIx] = prob
 	}
@@ -302,13 +408,13 @@ func (m *model) predict(ctx []rune) ([]rune, vector) {
 
 func (m *model) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
-	d, _, c, s := unmat(m.L)
+	d, _, c := unmat(m.L)
 	for range n {
 		m.loadXs(ctx)
-		m.run()
+		m.forward()
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
-		i := softSample(d[tokIx*s : tokIx*s+c])
+		i := softSample(d[tokIx*c : tokIx*c+c])
 		fmt.Printf("%c", m.vocab[i])
 		ctx = append(ctx, m.vocab[i])
 		ctx = ctx[max(0, len(ctx)-m.context):]
@@ -318,15 +424,15 @@ func (m *model) generate(ctx []rune, n int) {
 
 func (m *model) solve(ctx []rune) {
 	m.loadXs(ctx)
-	m.run()
-	d, _, c, s := unmat(m.L)
+	m.forward()
+	d, _, c := unmat(m.L)
 	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
 	xs := []int{}
 	for ; i < len(ctx); i++ {
 		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(d[i*s : i*s+c])
+		_, j := rowMax(d[i*c : i*c+c])
 		prediction = append(prediction, m.vocab[j])
 		xs = append(xs, i)
 	}
@@ -340,10 +446,10 @@ func (m *model) solve(ctx []rune) {
 
 func (m *model) rand(rng *rand.Rand) {
 	mat := func(m matrix, scale float64) {
-		d, r, c, s := unmat(m)
+		d, r, c := unmat(m)
 		for i := range r {
 			for j := range c {
-				d[i*s+j] = scale * 2 * (rng.Float64() - 0.5)
+				d[i*c+j] = scale * 2 * (rng.Float64() - 0.5)
 			}
 		}
 	}
@@ -377,7 +483,7 @@ func (m *model) rand(rng *rand.Rand) {
 			b.bias1[i] = 0
 		}
 	}
-	mat(m.linear, 0.2)
+	mat(m.unembed, 0.2)
 	for i := range m.bias2 {
 		m.bias2[i] = 0
 	}
@@ -390,7 +496,7 @@ func (m *model) apply(theta vector) {
 		M += len(v)
 	}
 	mat := func(m matrix) {
-		d, _, _, _ := unmat(m)
+		d, _, _ := unmat(m)
 		copy(d, theta[M:M+len(d)])
 		M += len(d)
 	}
@@ -412,7 +518,7 @@ func (m *model) apply(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
-	mat(m.linear)
+	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
@@ -426,7 +532,7 @@ func (m *model) dump(theta vector) {
 		M += len(v)
 	}
 	mat := func(m matrix) {
-		d, _, _, _ := unmat(m)
+		d, _, _ := unmat(m)
 		copy(theta[M:M+len(d)], d)
 		M += len(d)
 	}
@@ -448,8 +554,44 @@ func (m *model) dump(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
-	mat(m.linear)
+	mat(m.unembed)
 	vec(m.bias2)
+	if M != len(theta) {
+		log.Fatal("mismatch between len(theta) and model size")
+	}
+}
+
+func (m *model) grad(theta vector) {
+	M := 0
+	vec := func(v vector) {
+		copy(theta[M:M+len(v)], v)
+		M += len(v)
+	}
+	mat := func(m matrix) {
+		d, _, _ := unmat(m)
+		copy(theta[M:M+len(d)], d)
+		M += len(d)
+	}
+	mat(m.dtokens)
+	mat(m.dpositions)
+	for _, b := range m.blocks {
+		vec(b.dgamma0)
+		vec(b.dbeta0)
+		vec(b.dgamma1)
+		vec(b.dbeta1)
+		for i := range b.attn {
+			mat(b.dqueries[i])
+			mat(b.dkeys[i])
+			mat(b.dvalues[i])
+		}
+		mat(b.dproj)
+		mat(b.dinput)
+		vec(b.dbias0)
+		mat(b.dhidden)
+		vec(b.dbias1)
+	}
+	mat(m.dunembed)
+	vec(m.dbias2)
 	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
 	}

@@ -36,16 +36,16 @@ func (m *model) printAttention() {
 
 func (m *model) calcHeatmap(x int, As []matrix) []vector {
 	target := make(vector, m.dModel)
-	d, _, c, s := unmat(m.L)
-	_, rmix := rowMax(d[x*s : x*s+c])
+	d, _, c := unmat(m.L)
+	_, rmix := rowMax(d[x*c : x*c+c])
 	for i := range m.dModel {
-		target[i] = m.linear.At(i, rmix)
+		target[i] = m.unembed.At(i, rmix)
 	}
 	maxProd := math.Inf(-1)
 	minProd := math.Inf(1)
 	for _, A := range As {
-		d, _, c, s := unmat(A) // matRow or sth, srs...
-		x := d[x*s : x*s+c]
+		d, _, c := unmat(A) // matRow or sth, srs...
+		x := d[x*c : x*c+c]
 		if len(x) != len(target) {
 			log.Panicf("Incompatible heatmaps, %d != %d", len(x), len(target))
 		}
@@ -57,8 +57,8 @@ func (m *model) calcHeatmap(x int, As []matrix) []vector {
 	rgbs := make([]vector, 0, len(As))
 	for _, A := range As {
 		rgb := make(vector, m.dModel)
-		d, _, c, s := unmat(A)
-		x := d[x*s : x*s+c]
+		d, _, c := unmat(A)
+		x := d[x*c : x*c+c]
 		for i := range rgb {
 			rgb[i] = (x[i] * target[i]) / (maxProd - minProd)
 		}

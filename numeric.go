@@ -5,7 +5,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"sync"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -15,17 +14,16 @@ type (
 	matrix = *mat.Dense
 )
 
-type objective interface {
-	eval2([]vector, []vector, int) (vector, vector)
-}
-
 func makeMat(r, c int) matrix {
 	return mat.NewDense(r, c, nil)
 }
 
-func unmat(A matrix) ([]float64, int, int, int) {
+func unmat(A matrix) ([]float64, int, int) {
 	raw := A.RawMatrix()
-	return raw.Data, raw.Rows, raw.Cols, raw.Stride
+	if raw.Stride != raw.Cols {
+		log.Panicf("Stride %d != Cols %d", raw.Stride, raw.Cols)
+	}
+	return raw.Data, raw.Rows, raw.Cols
 }
 
 func mulMat(C, A, B matrix) {
@@ -36,18 +34,22 @@ func mulMatT(C, A, B matrix) {
 	C.Mul(A, B.T())
 }
 
+func mulTmat(C, A, B matrix) {
+	C.Mul(A.T(), B)
+}
+
 func mulMatK(a matrix, k float64) {
 	a.Scale(k, a)
 }
 
 func addMatV(A matrix, v vector) {
-	d, r, c, s := unmat(A)
+	d, r, c := unmat(A)
 	if c != len(v) {
 		log.Panicf("addMatV: bad dimensions, %d + %d\n", r, len(v))
 	}
 	for i := range r {
 		for j := range c {
-			d[i*s+j] += v[j]
+			d[i*c+j] += v[j]
 		}
 	}
 }
@@ -63,31 +65,31 @@ func mapMat(C, A matrix, f func(float64) float64) {
 }
 
 func catMat(B matrix, As []matrix) {
-	db, rb, cb, sb := unmat(B)
-	_, ra, ca, _ := unmat(As[0])
+	db, rb, cb := unmat(B)
+	_, ra, ca := unmat(As[0])
 	if ra != rb || ca*len(As) != cb {
 		log.Panicf("catMat: bad dims %dx%d %dx%d\n", rb, cb, ra, ca)
 	}
 	for _, A := range As {
-		_, r, c, _ := unmat(A)
+		_, r, c := unmat(A)
 		if ra != r || ca != c {
 			log.Panicf("catMat: bad dims %dx%d %dx%d\n", ra, ca, r, c)
 		}
 	}
 	for c, A := range As {
-		da, _, ca, sa := unmat(A)
+		da, _, ca := unmat(A)
 		for r := range rb {
-			copy(db[r*sb+c*ca:r*sb+(1+c)*ca], da[r*sa:r*sa+sa])
+			copy(db[r*cb+c*ca:r*cb+(1+c)*ca], da[r*ca:r*ca+ca])
 		}
 	}
 }
 
 func printMat(A matrix) {
-	d, r, c, s := unmat(A)
+	d, r, c := unmat(A)
 	for i := range r {
 		fmt.Printf("[")
 		for j := range c {
-			fmt.Printf("%6.3f ", d[i*s+j])
+			fmt.Printf("%9.6f ", d[i*c+j])
 		}
 		fmt.Printf("]\n")
 	}
@@ -96,14 +98,14 @@ func printMat(A matrix) {
 func printVec(v vector) {
 	fmt.Printf("[")
 	for _, x := range v {
-		fmt.Printf("%6.3f ", x)
+		fmt.Printf("%9.6f ", x)
 	}
 	fmt.Printf("]\n")
 }
 
 func printRow(A matrix, i int) {
-	d, _, c, s := unmat(A)
-	printVec(d[i*s : i*s+c])
+	d, _, c := unmat(A)
+	printVec(d[i*c : i*c+c])
 }
 
 func mulVec(v vector, k float64) {
@@ -130,6 +132,17 @@ func addVec3(w, v, u vector, k float64) {
 	}
 }
 
+func sumCols(v vector, A matrix) {
+	a, _, c := unmat(A)
+	for j := range c {
+		sum := 0.0
+		for i := 0; i < len(a)/c; i++ {
+			sum += a[i*c+j]
+		}
+		v[j] = sum
+	}
+}
+
 func rowMax(row vector) (float64, int) {
 	rowMax := math.Inf(-1)
 	i := -1
@@ -151,16 +164,16 @@ func rowSum(row vector, rowMax float64) float64 {
 }
 
 func softmaxT(S, A matrix) {
-	dA, rA, cA, sA := unmat(A)
-	dS, rS, cS, sS := unmat(S)
+	dA, rA, cA := unmat(A)
+	dS, rS, cS := unmat(S)
 	if rS != rA || cS != cA {
 		log.Panicf("Softmax: incompatible matrices, A: %dx%d, S: %dx%d\n", rA, cA, rS, cS)
 	}
 	S.Zero()
 	for i := range rA {
 		triangle := i + 1
-		rowA := dA[i*sA : i*sA+triangle]
-		rowS := dS[i*sS : i*sS+triangle]
+		rowA := dA[i*cA : i*cA+triangle]
+		rowS := dS[i*cS : i*cS+triangle]
 		rowMax, _ := rowMax(rowA)
 		if rowMax == 0 {
 			continue
@@ -179,8 +192,8 @@ func softmaxT(S, A matrix) {
 
 func layerNorm(L, X matrix, gamma, beta vector) {
 	L.Zero()
-	dX, rX, cX, sX := unmat(X)
-	dL, rL, cL, sL := unmat(L)
+	dX, rX, cX := unmat(X)
+	dL, rL, cL := unmat(L)
 	rows := rX
 	cols := cX
 	if rX != rL || cX != cL || cX != len(gamma) || cols != len(beta) {
@@ -191,21 +204,21 @@ func layerNorm(L, X matrix, gamma, beta vector) {
 		u := 0.0
 		o2 := 0.0
 		for j := range cols {
-			u += dX[i*sX+j]
+			u += dX[i*cX+j]
 		}
 		if u == 0 {
 			continue
 		}
 		u /= float64(cols)
 		for j := range cols {
-			x := dX[i*sX+j]
+			x := dX[i*cX+j]
 			o2 += (x - u) * (x - u)
 		}
 		o2 /= float64(cols)
 		for j := range cols {
-			dL[i*sL+j] = (dX[i*sX+j] - u) / math.Sqrt(o2+0.00001)
-			dL[i*sL+j] *= gamma[j]
-			dL[i*sL+j] += beta[j]
+			dL[i*cL+j] = (dX[i*cX+j] - u) / math.Sqrt(o2+0.00001)
+			dL[i*cL+j] *= gamma[j]
+			dL[i*cL+j] += beta[j]
 		}
 	}
 }
@@ -240,31 +253,37 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsa(obj objective, theta vector, samples, iters int, lr, eps float64, seed int64) {
-	ones := make([]vector, samples)
-	dPlus := make([]vector, samples)
-	dMinus := make([]vector, samples)
-	rngs := make([]*rand.Rand, samples)
-	var wg sync.WaitGroup
-	for i := range samples {
-		ones[i] = make(vector, len(theta))
-		dPlus[i] = make(vector, len(theta))
-		dMinus[i] = make(vector, len(theta))
-		rngs[i] = rand.New(rand.NewSource(seed + int64((i+1)*1000)))
+func sgd(t *training, theta vector, iters int, lr float64) {
+	grad := make(vector, len(theta))
+	for i := range iters {
+		mulVec(grad, 0)
+		t.eval(theta, grad, i)
+		addVec2(theta, grad, -lr)
 	}
+}
+
+func adam(t *training, theta vector, iters int, lr float64) {
+	const (
+		b1  = 0.9
+		b2  = 0.999
+		eps = 1e-8
+	)
+	grad := make(vector, len(theta))
+	m := make(vector, len(theta))
+	v := make(vector, len(theta))
+	b1t, b2t := 1.0, 1.0
 	for iter := range iters {
-		for i := range samples {
-			wg.Go(func() {
-				rademacher(ones[i], rngs[i])
-				addVec3(dPlus[i], theta, ones[i], eps)
-				addVec3(dMinus[i], theta, ones[i], -eps)
-			})
-		}
-		wg.Wait()
-		plus, minus := obj.eval2(dPlus, dMinus, iter)
-		for i := range samples {
-			d := (plus[i] - minus[i]) / (2 * eps)
-			addVec2(theta, ones[i], -d*lr/float64(samples))
+		mulVec(grad, 0)
+		t.eval(theta, grad, iter)
+		b1t *= b1
+		b2t *= b2
+		for i := range grad {
+			m[i] = b1*m[i] + (1-b1)*grad[i]
+			v[i] = b2*v[i] + (1-b2)*grad[i]*grad[i]
+			mhat := m[i] / (1 - b1t)
+			vhat := v[i] / (1 - b2t)
+			dt := mhat / (math.Sqrt(vhat) + eps)
+			theta[i] -= lr * dt
 		}
 	}
 }

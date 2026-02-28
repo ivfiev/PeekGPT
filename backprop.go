@@ -7,7 +7,6 @@ import (
 
 func (m *model) backward() {
 	m.dLogits()
-	m.dBias2()
 	m.dLinear()
 	mulMatT(m.blocks[len(m.blocks)-1].dR1, m.dL, m.linear)
 	for i := len(m.blocks) - 1; i >= 0; i-- {
@@ -16,12 +15,6 @@ func (m *model) backward() {
 			m.blocks[i-1].dR1.Copy(m.blocks[i].dXS0)
 		}
 	}
-	// m.blocks[1].backward()
-	// m.blocks[0].dR1.Copy(m.blocks[1].dXS0)
-	// m.blocks[0].dR1.Apply(func(i, j int, v float64) float64 {
-	// 	return v
-	// }, m.blocks[1].dXS0)
-	// m.blocks[0].backward()
 	// l(m.L(unembed(...)))
 	// l'(m.L(...)) * m.L'(unembed..)
 	// dL/dLogits * dLogits/dlinear * dlinear/...
@@ -44,7 +37,7 @@ func (b *block) backward() {
 		return v
 	}, b.dR1)
 	mulTmat(b.dhidden, b.A, b.dH)
-	b.dBias1()
+	sumCols(b.dbias1, b.dH)
 	mulMatT(b.dA, b.dH, b.hidden)
 	b.dI.Apply(func(i, j int, v float64) float64 {
 		if v > 0 {
@@ -53,7 +46,7 @@ func (b *block) backward() {
 		return 0
 	}, b.I)
 	mulTmat(b.dinput, b.XS2, b.dI)
-	b.dBias0()
+	sumCols(b.dbias0, b.dI)
 	mulMatT(b.dXS2, b.dI, b.input)
 	b.hatXS2.Apply(func(i, j int, v float64) float64 {
 		return (v - b.beta1[j]) / b.gamma1[j]
@@ -107,7 +100,7 @@ func (b *block) backward() {
 	b.layerNormBackward0(b.dXS0, b.XS0)
 }
 
-// TODO store softmaxes on the model. cleanup after auto-test done
+// TODO store softmaxes on the model. drop At(i, j)
 func (m *model) dLogits() {
 	m.dL.Zero()
 	count := 0.0
@@ -142,86 +135,36 @@ func (b *block) dSVs() {
 	}
 }
 
-func (m *model) dBias2() {
-	sumCols(m.dbias2, m.dL)
-	// mulVec(m.dbias2, 0)
-	// g, _, c, s := unmat(m.dL)
-	// for j := range c {
-	// 	sum := 0.0
-	// 	for i := 0; i < len(g)/s; i++ {
-	// 		sum += g[i*s+j]
-	// 	}
-	// 	m.dbias2[j] += sum
-	// }
-}
-
-func (b *block) dBias1() {
-	sumCols(b.dbias1, b.dH)
-	// mulVec(b.dbias1, 0)
-	// g, _, c, s := unmat(b.dH)
-	// for j := range c {
-	// 	sum := 0.0
-	// 	for i := 0; i < len(g)/s; i++ {
-	// 		sum += g[i*s+j]
-	// 	}
-	// 	b.dbias1[j] += sum
-	// }
-}
-
-func (b *block) dBias0() {
-	sumCols(b.dbias0, b.dI)
-	// mulVec(b.dbias0, 0) // are these needed? TODO
-	// g, _, c, s := unmat(b.dI)
-	// for j := range c {
-	// 	sum := 0.0
-	// 	for i := 0; i < len(g)/s; i++ {
-	// 		sum += g[i*s+j]
-	// 	}
-	// 	b.dbias0[j] += sum
-	// }
-}
-
-// TODO why separate bro
 func (m *model) dLinear() {
 	m.dlinear.Zero()
 	block := m.blocks[len(m.blocks)-1]
 	mulTmat(m.dlinear, block.R1, m.dL)
-}
-
-func sumCols(v vector, A matrix) {
-	a, _, c, s := unmat(A)
-	for j := range c {
-		sum := 0.0
-		for i := 0; i < len(a)/s; i++ {
-			sum += a[i*s+j]
-		}
-		v[j] = sum
-	}
+	sumCols(m.dbias2, m.dL)
 }
 
 func (b *block) layerNormBackward(T, XS matrix) {
 	const eps = 0.00001
 	ctx, dModel := b.context, b.dModel
-	for i := 0; i < ctx; i++ {
+	for i := range ctx {
 		mean := 0.0
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			mean += XS.At(i, j)
 		}
 		mean /= float64(dModel)
 		varsum := 0.0
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			diff := XS.At(i, j) - mean
 			varsum += diff * diff
 		}
 		stdInv := 1.0 / math.Sqrt(varsum/float64(dModel)+eps)
 		sumDhat := 0.0
 		sumDhatHat := 0.0
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			b.dhatXS2.Set(i, j, b.dXS2.At(i, j)*b.gamma1[j])
 			sumDhat += b.dhatXS2.At(i, j)
 			sumDhatHat += b.dhatXS2.At(i, j) * b.hatXS2.At(i, j)
 		}
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			val := (b.dhatXS2.At(i, j) - sumDhat/float64(dModel) - b.hatXS2.At(i, j)*sumDhatHat/float64(dModel)) * stdInv
 			T.Set(i, j, T.At(i, j)+val)
 		}
@@ -231,26 +174,26 @@ func (b *block) layerNormBackward(T, XS matrix) {
 func (b *block) layerNormBackward0(T, XS matrix) {
 	const eps = 0.00001
 	ctx, dModel := b.context, b.dModel
-	for i := 0; i < ctx; i++ {
+	for i := range ctx {
 		mean := 0.0
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			mean += XS.At(i, j)
 		}
 		mean /= float64(dModel)
 		varsum := 0.0
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			diff := XS.At(i, j) - mean
 			varsum += diff * diff
 		}
 		stdInv := 1.0 / math.Sqrt(varsum/float64(dModel)+eps)
 		sumDhat := 0.0
 		sumDhatHat := 0.0
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			b.dhatXS1.Set(i, j, b.dXS1.At(i, j)*b.gamma0[j])
 			sumDhat += b.dhatXS1.At(i, j)
 			sumDhatHat += b.dhatXS1.At(i, j) * b.hatXS1.At(i, j)
 		}
-		for j := 0; j < dModel; j++ {
+		for j := range dModel {
 			val := (b.dhatXS1.At(i, j) - sumDhat/float64(dModel) - b.hatXS1.At(i, j)*sumDhatHat/float64(dModel)) * stdInv
 			T.Set(i, j, T.At(i, j)+val)
 		}

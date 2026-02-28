@@ -585,7 +585,6 @@ func TestMatrixCat(te *testing.T) {
 func TestBackprop(te *testing.T) {
 	const eps = 1e-7
 	m := newModel(4, 3, 2, 2, 3, []rune("abcde"))
-	// m := newModel(4, 3, 4, 1, 1, []rune("abcde"))
 	m.rand(rand.New(rand.NewSource(7357)))
 	expected := make(vector, m.size())
 	actual := make(vector, m.size())
@@ -616,14 +615,24 @@ func TestBackprop(te *testing.T) {
 		m.backward()
 		m.grad(actual)
 	}
-	m.ys = []int{1, 2, -1}
-	finiteDiff([]rune("ab"))
-	backprop([]rune("ab"))
-	for i := range m.size() {
-		e := expected[i]
-		a := actual[i]
-		if math.Abs(e-a) > eps {
-			te.Errorf("%d: %.9f != %.9f", i, e, a)
+	test := func(proompt []rune, ys []int) {
+		copy(m.ys, ys)
+		finiteDiff(proompt)
+		backprop(proompt)
+		for i := range m.size() {
+			e := expected[i]
+			a := actual[i]
+			if math.Abs(e-a) > eps {
+				te.Errorf("%d: %.9f != %.9f", i, e, a)
+			}
 		}
 	}
+	test([]rune("a"), []int{1, -1, -1})
+	test([]rune("e"), []int{3, -1, -1})
+	test([]rune("ab"), []int{1, 2, -1})
+	test([]rune("ed"), []int{0, 2, -1})
+	test([]rune("cd"), []int{1, 1, -1})
+	test([]rune("eee"), []int{3, 1, 1})
+	test([]rune("dab"), []int{1, 1, 0})
+	test([]rune("bac"), []int{0, 2, 1})
 }

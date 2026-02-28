@@ -23,7 +23,7 @@ type model struct {
 	blocks []*block
 
 	// to-logit map parameters
-	linear matrix
+	linear matrix // TODO unembed
 	bias2  vector
 
 	// logits
@@ -31,7 +31,7 @@ type model struct {
 
 	// derivatives
 	dL      matrix
-	dlinear matrix
+	dlinear matrix // TODO dunembed
 	dbias2  vector
 
 	dtokens    matrix

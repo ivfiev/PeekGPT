@@ -135,6 +135,17 @@ func addVec3(w, v, u vector, k float64) {
 	}
 }
 
+func sumCols(v vector, A matrix) {
+	a, _, c, s := unmat(A)
+	for j := range c {
+		sum := 0.0
+		for i := 0; i < len(a)/s; i++ {
+			sum += a[i*s+j]
+		}
+		v[j] = sum
+	}
+}
+
 func rowMax(row vector) (float64, int) {
 	rowMax := math.Inf(-1)
 	i := -1

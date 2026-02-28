@@ -18,12 +18,12 @@ type model struct {
 
 	prompt []rune
 	XS     matrix // inputs
-	ys     []int  // outputs, used for loss
+	ys     []int  // output targets, used for loss
 
 	blocks []*block
 
 	// to-logit map parameters
-	unembed matrix // TODO unembed
+	unembed matrix
 	bias2   vector
 
 	// logits
@@ -31,7 +31,7 @@ type model struct {
 
 	// derivatives
 	dL       matrix
-	dunembed matrix // TODO dunembed
+	dunembed matrix
 	dbias2   vector
 
 	dtokens    matrix
@@ -229,7 +229,7 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.dinput = makeMat(dModel, dModel)
 	b.dbias0 = make(vector, dModel)
 
-	b.dR0 = makeMat(ctx, dModel) // big one
+	b.dR0 = makeMat(ctx, dModel)
 	b.dXS2 = makeMat(ctx, dModel)
 	b.hatXS2 = makeMat(ctx, dModel)
 	b.dXS2ThatXS2 = makeMat(ctx, dModel)
@@ -329,14 +329,6 @@ func (m *model) loss() float64 {
 		loss += -d[i*c+m.ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(count)
-}
-
-func (m *model) clone() *model {
-	return newModel(
-		m.dModel, m.context,
-		m.blocks[0].dAttn, m.blocks[0].attn,
-		len(m.blocks), m.vocab,
-	)
 }
 
 func (m *model) size() int {
@@ -580,7 +572,6 @@ func (m *model) grad(theta vector) {
 		copy(theta[M:M+len(d)], d)
 		M += len(d)
 	}
-	// TODO - abstract this ordering away
 	mat(m.dtokens)
 	mat(m.dpositions)
 	for _, b := range m.blocks {

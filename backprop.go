@@ -83,20 +83,20 @@ func (b *block) backward() {
 func (m *model) dLogits() {
 	m.dL.Zero()
 	count := 0.0
-	d, rl, cl, sl := unmat(m.L)
-	g, _, _, sg := unmat(m.dL)
+	d, rl, cl := unmat(m.L)
+	g, _, cg := unmat(m.dL)
 	for i := range rl {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*sl : i*sl+cl]
+		row := d[i*cl : i*cl+cl]
 		rowMax, _ := rowMax(row)
 		sum := rowSum(row, rowMax)
 		for c := range row {
-			g[i*sg+c] = math.Exp(d[i*sl+c]-rowMax) / sum
+			g[i*cg+c] = math.Exp(d[i*cl+c]-rowMax) / sum
 			if m.ys[i] == c {
-				g[i*sg+c] -= 1.0
+				g[i*cg+c] -= 1.0
 			}
 		}
 	}
@@ -106,7 +106,7 @@ func (m *model) dLogits() {
 }
 
 func (b *block) dSVs() {
-	_, rows, cols, _ := unmat(b.dCV)
+	_, rows, cols := unmat(b.dCV)
 	for r := range rows {
 		for c := range cols {
 			b.dSV[c/b.dAttn].Set(r, c%b.dAttn, b.dCV.At(r, c))
@@ -167,7 +167,7 @@ func (b *block) layerNormBackward(dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matri
 
 func (b *block) softmaxBackward(dQK, dS, S matrix) {
 	scale := 1.0 / math.Sqrt(float64(b.dAttn))
-	_, rows, cols, _ := unmat(S)
+	_, rows, cols := unmat(S)
 	for i := range rows {
 		sum := 0.0
 		for j := range cols {

@@ -317,16 +317,16 @@ func (b *block) forward() {
 func (m *model) loss() float64 {
 	loss := 0.0
 	count := 0
-	d, r, c, s := unmat(m.L)
+	d, r, c := unmat(m.L)
 	for i := range r {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*s : i*s+c]
+		row := d[i*c : i*c+c]
 		rowMax, _ := rowMax(row)
 		sum := rowSum(row, rowMax)
-		loss += -d[i*s+m.ys[i]] + rowMax + math.Log(sum)
+		loss += -d[i*c+m.ys[i]] + rowMax + math.Log(sum)
 	}
 	return loss / float64(count)
 }
@@ -374,24 +374,24 @@ func (m *model) loadXs(prompt []rune) {
 		b.XS1.Zero()
 		b.XS2.Zero()
 	}
-	dx, _, _, sx := unmat(m.XS)
-	dt, _, _, st := unmat(m.tokens)
-	dp, _, _, sp := unmat(m.positions)
+	dx, _, cx := unmat(m.XS)
+	dt, _, ct := unmat(m.tokens)
+	dp, _, cp := unmat(m.positions)
 	for posIx := range prompt {
 		vocIx := slices.Index(m.vocab, prompt[posIx])
 		if vocIx == -1 {
 			log.Panicf("loadXs: token %c is invalid", prompt[posIx])
 		}
 		for j := range m.dModel {
-			dx[posIx*sx+j] = dt[vocIx*st+j] + dp[posIx*sp+j]
+			dx[posIx*cx+j] = dt[vocIx*ct+j] + dp[posIx*cp+j]
 		}
 	}
 	m.prompt = prompt
 }
 
 func (b *block) loadXs(xs matrix) {
-	dxs, rxs, cxs, _ := unmat(xs)
-	dxs0, rxs0, cxs0, _ := unmat(b.XS0)
+	dxs, rxs, cxs := unmat(xs)
+	dxs0, rxs0, cxs0 := unmat(b.XS0)
 	if rxs != rxs0 || cxs != cxs0 {
 		log.Panic("Incompatible XS")
 	}
@@ -401,13 +401,13 @@ func (b *block) loadXs(xs matrix) {
 func (m *model) predict(ctx []rune) ([]rune, vector) {
 	m.loadXs(ctx)
 	m.forward()
-	d, _, c, s := unmat(m.L)
+	d, _, c := unmat(m.L)
 	nexts := make([]rune, len(ctx))
 	probs := make(vector, len(ctx))
 	for tokIx := range len(ctx) {
-		rm, i := rowMax(d[s*tokIx : s*tokIx+c])
-		sum := rowSum(d[tokIx*s:tokIx*s+c], rm)
-		prob := math.Exp(d[tokIx*s+i]-rm) / sum
+		rm, i := rowMax(d[c*tokIx : c*tokIx+c])
+		sum := rowSum(d[tokIx*c:tokIx*c+c], rm)
+		prob := math.Exp(d[tokIx*c+i]-rm) / sum
 		nexts[tokIx] = m.vocab[i]
 		probs[tokIx] = prob
 	}
@@ -416,13 +416,13 @@ func (m *model) predict(ctx []rune) ([]rune, vector) {
 
 func (m *model) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
-	d, _, c, s := unmat(m.L)
+	d, _, c := unmat(m.L)
 	for range n {
 		m.loadXs(ctx)
 		m.forward()
 		tokIx := len(ctx) - 1
 		// printVec(t.L[tokIx])
-		i := softSample(d[tokIx*s : tokIx*s+c])
+		i := softSample(d[tokIx*c : tokIx*c+c])
 		fmt.Printf("%c", m.vocab[i])
 		ctx = append(ctx, m.vocab[i])
 		ctx = ctx[max(0, len(ctx)-m.context):]
@@ -433,14 +433,14 @@ func (m *model) generate(ctx []rune, n int) {
 func (m *model) solve(ctx []rune) {
 	m.loadXs(ctx)
 	m.forward()
-	d, _, c, s := unmat(m.L)
+	d, _, c := unmat(m.L)
 	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
 	xs := []int{}
 	for ; i < len(ctx); i++ {
 		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(d[i*s : i*s+c])
+		_, j := rowMax(d[i*c : i*c+c])
 		prediction = append(prediction, m.vocab[j])
 		xs = append(xs, i)
 	}
@@ -454,10 +454,10 @@ func (m *model) solve(ctx []rune) {
 
 func (m *model) rand(rng *rand.Rand) {
 	mat := func(m matrix, scale float64) {
-		d, r, c, s := unmat(m)
+		d, r, c := unmat(m)
 		for i := range r {
 			for j := range c {
-				d[i*s+j] = scale * 2 * (rng.Float64() - 0.5)
+				d[i*c+j] = scale * 2 * (rng.Float64() - 0.5)
 			}
 		}
 	}
@@ -504,7 +504,7 @@ func (m *model) apply(theta vector) {
 		M += len(v)
 	}
 	mat := func(m matrix) {
-		d, _, _, _ := unmat(m)
+		d, _, _ := unmat(m)
 		copy(d, theta[M:M+len(d)])
 		M += len(d)
 	}
@@ -540,7 +540,7 @@ func (m *model) dump(theta vector) {
 		M += len(v)
 	}
 	mat := func(m matrix) {
-		d, _, _, _ := unmat(m)
+		d, _, _ := unmat(m)
 		copy(theta[M:M+len(d)], d)
 		M += len(d)
 	}
@@ -576,7 +576,7 @@ func (m *model) grad(theta vector) {
 		M += len(v)
 	}
 	mat := func(m matrix) {
-		d, _, _, _ := unmat(m)
+		d, _, _ := unmat(m)
 		copy(theta[M:M+len(d)], d)
 		M += len(d)
 	}

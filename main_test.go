@@ -30,7 +30,7 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 			println()
 			te.Fatal(err)
 		}
-		_, r, c, _ := unmat(actual)
+		_, r, c := unmat(actual)
 		if r != len(expected) {
 			fail()
 		}
@@ -53,8 +53,8 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 			println()
 			te.Fatal(err)
 		}
-		da, ra, ca, _ := unmat(actual)
-		de, re, ce, _ := unmat(expected)
+		da, ra, ca := unmat(actual)
+		de, re, ce := unmat(expected)
 		if ra != re || ca != ce || len(da) != len(de) {
 			fail()
 		}
@@ -144,12 +144,12 @@ func TestPointLoss(te *testing.T) {
 	m.rand(rand.New(rand.NewSource(7357)))
 	t := newTraining(m)
 	p := func(r, c int) float64 {
-		d, _, cols, s := unmat(m.L)
+		d, _, cols := unmat(m.L)
 		sum := 0.0
 		for i := range cols {
-			sum += math.Exp(d[r*s+i])
+			sum += math.Exp(d[r*cols+i])
 		}
-		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
+		return -math.Log(math.Exp(float64(d[r*cols+c])) / sum)
 	}
 	actual := t.pointLoss(m, []rune("bc|??=bc"))
 	expected := (p(3, 1) + p(4, 2)) / 2.0
@@ -337,7 +337,7 @@ func TestBlocksE2E(te *testing.T) {
 	addMatV(mat33, m.bias2)
 	assertEq(m.L, mat33, "t.L", te)
 
-	d, _, _, _ := unmat(m.L)
+	d, _, _ := unmat(m.L)
 	for _, x := range d {
 		if math.Abs(x) < 0.001 {
 			te.Fatal("t.L = 0")
@@ -411,12 +411,12 @@ func TestLoss(te *testing.T) {
 		{-3.14, 7.77, 0},
 	})
 	p := func(r, c int) float64 {
-		d, _, cols, s := unmat(m.L)
+		d, _, cols := unmat(m.L)
 		sum := 0.0
 		for i := range cols {
-			sum += math.Exp(d[r*s+i])
+			sum += math.Exp(d[r*cols+i])
 		}
-		return -math.Log(math.Exp(float64(d[r*s+c])) / sum)
+		return -math.Log(math.Exp(float64(d[r*cols+c])) / sum)
 	}
 	m.ys = []int{1, 0, 2, 0, 2}
 	loss := m.loss()
@@ -462,7 +462,7 @@ func TestMatrixInit(te *testing.T) {
 	assert := func(X any, p func(float64) bool) {
 		switch X := X.(type) {
 		case matrix:
-			_, rows, cols, _ := unmat(X)
+			_, rows, cols := unmat(X)
 			for i := range rows {
 				for j := range cols {
 					if !p(X.At(i, j)) {

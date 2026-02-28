@@ -20,7 +20,7 @@ func assert(f func(*model) (any, any), label string, args ...any) {
 	const eps = 1e-6
 	switch target := target.(type) {
 	case matrix:
-		_, rows, cols, _ := unmat(target)
+		_, rows, cols := unmat(target)
 		expected := makeMat(rows, cols)
 		for r := range rows {
 			for c := range cols {

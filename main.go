@@ -2,12 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
 
 func assert(f func(*model) (any, any), label string, args ...any) {
@@ -72,34 +75,34 @@ func assert(f func(*model) (any, any), label string, args ...any) {
 }
 
 func main() {
-	assert(func(m *model) (any, any) { return m.unembed, m.dunembed }, "linear")
-	assert(func(m *model) (any, any) { return m.bias2, m.dbias2 }, "bias")
-
-	assert(func(m *model) (any, any) { return m.tokens, m.dtokens }, "tokens", true, true)
-	assert(func(m *model) (any, any) { return m.positions, m.dpositions }, "positions", true, true)
-
-	assert(func(m *model) (any, any) { return m.blocks[0].hidden, m.blocks[0].dhidden }, "hidden")
-	assert(func(m *model) (any, any) { return m.blocks[0].bias1, m.blocks[0].dbias1 }, "bias1")
-	assert(func(m *model) (any, any) { return m.blocks[0].input, m.blocks[0].dinput }, "input")
-	assert(func(m *model) (any, any) { return m.blocks[0].bias0, m.blocks[0].dbias0 }, "bias0")
-
-	assert(func(m *model) (any, any) { return m.blocks[0].gamma1, m.blocks[0].dgamma1 }, "gamma1")
-	assert(func(m *model) (any, any) { return m.blocks[0].beta1, m.blocks[0].dbeta1 }, "beta1")
+	// assert(func(m *model) (any, any) { return m.unembed, m.dunembed }, "linear")
+	// assert(func(m *model) (any, any) { return m.bias2, m.dbias2 }, "bias")
 	//
-	assert(func(m *model) (any, any) { return m.blocks[0].proj, m.blocks[0].dproj }, "proj")
-
-	assert(func(m *model) (any, any) {
-		return m.blocks[0].queries[0], m.blocks[0].dqueries[0]
-	}, "queries")
-	assert(func(m *model) (any, any) {
-		return m.blocks[0].keys[0], m.blocks[0].dkeys[0]
-	}, "keys")
-	assert(func(m *model) (any, any) {
-		return m.blocks[0].values[0], m.blocks[0].dvalues[0]
-	}, "values")
-
-	assert(func(m *model) (any, any) { return m.blocks[0].gamma0, m.blocks[0].dgamma0 }, "gamma0")
-	assert(func(m *model) (any, any) { return m.blocks[0].beta0, m.blocks[0].dbeta0 }, "beta0")
+	// assert(func(m *model) (any, any) { return m.tokens, m.dtokens }, "tokens", true, true)
+	// assert(func(m *model) (any, any) { return m.positions, m.dpositions }, "positions", true, true)
+	//
+	// assert(func(m *model) (any, any) { return m.blocks[0].hidden, m.blocks[0].dhidden }, "hidden")
+	// assert(func(m *model) (any, any) { return m.blocks[0].bias1, m.blocks[0].dbias1 }, "bias1")
+	// assert(func(m *model) (any, any) { return m.blocks[0].input, m.blocks[0].dinput }, "input")
+	// assert(func(m *model) (any, any) { return m.blocks[0].bias0, m.blocks[0].dbias0 }, "bias0")
+	//
+	// assert(func(m *model) (any, any) { return m.blocks[0].gamma1, m.blocks[0].dgamma1 }, "gamma1")
+	// assert(func(m *model) (any, any) { return m.blocks[0].beta1, m.blocks[0].dbeta1 }, "beta1")
+	// //
+	// assert(func(m *model) (any, any) { return m.blocks[0].proj, m.blocks[0].dproj }, "proj")
+	//
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[0].queries[0], m.blocks[0].dqueries[0]
+	// }, "queries")
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[0].keys[0], m.blocks[0].dkeys[0]
+	// }, "keys")
+	// assert(func(m *model) (any, any) {
+	// 	return m.blocks[0].values[0], m.blocks[0].dvalues[0]
+	// }, "values")
+	//
+	// assert(func(m *model) (any, any) { return m.blocks[0].gamma0, m.blocks[0].dgamma0 }, "gamma0")
+	// assert(func(m *model) (any, any) { return m.blocks[0].beta0, m.blocks[0].dbeta0 }, "beta0")
 
 	// assert(func(m *model) (any, any) { return m.L, m.dL }, "logits", false)
 	// assert(func(m *model) (any, any) { return m.linear, m.dlinear }, "linear")
@@ -153,87 +156,111 @@ func main() {
 	// dloss/dlogits * dlogits/dlinear
 	// dloss/dR1 = dloss/dlogits * dlogits/dXS * dXS/dR1
 
-	// mode := flag.String("mode", "load", "train/load/eval/gen")
-	// datapath := flag.String("data", "", "training/validation data path")
-	// modelpath := flag.String("model", "", "model path")
-	// prompt := flag.String("prompt", "", "prompt")
-	// tsize := flag.Int("t", 0, "size of the training set")
-	// vsize := flag.Int("v", 0, "size of the validation set")
-	// dmodel := flag.Int("dmodel", 0, "d_model")
-	// context := flag.Int("ctx", 0, "context")
-	// dattn := flag.Int("dattn", 0, "dattn")
-	// attn := flag.Int("attn", 1, "attn")
-	// blocks := flag.Int("blocks", 1, "blocks")
-	// lr := flag.Float64("lr", 0.0001, "learning rate")
-	// spsa := flag.Int("spsa", 8, "SPSA samples")
-	// eps := flag.Float64("eps", 0.000001, "eps")
-	// iters := flag.Int("iters", 1000, "training iterations")
-	// ubatches := flag.Int("ub", 32, "micro-batches")
-	// uiters := flag.Int("ui", 16, "micro-iters")
-	// seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
-	// task := flag.String("task", "", "task data type")
-	// vocab := flag.String("vocab", "", "vocab")
-	// n := flag.Int("n", 0, "n")
-	// maxLen := flag.Int("max", 0, "max")
-	// flag.Parse()
-	//
-	// switch *mode {
-	// case "load":
-	// 	if *prompt == "" {
-	// 		log.Panicln("empty prompt")
-	// 	}
-	// 	model := load(*modelpath)
-	// 	model.solve([]rune(*prompt))
-	// case "train":
-	// 	if *dattn == 0 {
-	// 		*dattn = *dmodel
-	// 	}
-	// 	trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-	// 	model := train(
-	// 		*dmodel, *context, *dattn, *attn, *blocks,
-	// 		trainingSet, validationSet,
-	// 		*spsa, *iters, *ubatches, *uiters, *lr, *eps,
-	// 		*seed,
-	// 	)
-	// 	store(model, *modelpath)
-	// case "gen":
-	// 	if len(*vocab) == 0 {
-	// 		log.Fatal("empty vocab")
-	// 	}
-	// 	runes := []rune(*vocab)
-	// 	rng := rand.New(rand.NewSource(*seed))
-	// 	switch *task {
-	// 	case "copy":
-	// 		for _, data := range genCopyDataset(runes, *maxLen, *n, rng) {
-	// 			fmt.Println(string(data))
-	// 		}
-	// 	case "reverse":
-	// 		for _, data := range genReverseDataset(runes, *maxLen, *n, rng) {
-	// 			fmt.Println(string(data))
-	// 		}
-	// 	case "index":
-	// 		for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
-	// 			fmt.Println(string(data))
-	// 		}
-	// 	case "kv":
-	// 		split := strings.Split(*vocab, ",")
-	// 		for _, data := range genKVdataset([]rune(split[0]), []rune(split[1]), *maxLen, *n, rng) {
-	// 			fmt.Println(string(data))
-	// 		}
-	// 	default:
-	// 		log.Fatalf("unknown task %s", *task)
-	// 	}
-	// case "eval":
-	// 	model := load(*modelpath)
-	// 	validationSet, _ := readTrainingData(*datapath, *vsize, 0)
-	// 	tr := newTraining(model)
-	// 	tr.validation = validationSet
-	// 	loss := tr.validate(model)
-	// 	fmt.Printf("Loss: %.12f\n", loss)
-	// 	fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
-	// default:
-	// 	log.Fatalf("unknown mode %s", *mode)
-	// }
+	mode := flag.String("mode", "load", "train/load/eval/gen")
+	datapath := flag.String("data", "", "training/validation data path")
+	modelpath := flag.String("model", "", "model path")
+	prompt := flag.String("prompt", "", "prompt")
+	tsize := flag.Int("t", 0, "size of the training set")
+	vsize := flag.Int("v", 0, "size of the validation set")
+	dmodel := flag.Int("dmodel", 0, "d_model")
+	context := flag.Int("ctx", 0, "context")
+	dattn := flag.Int("dattn", 0, "dattn")
+	attn := flag.Int("attn", 1, "attn")
+	blocks := flag.Int("blocks", 1, "blocks")
+	lr := flag.Float64("lr", 0.0001, "learning rate")
+	spsa := flag.Int("spsa", 8, "SPSA samples")
+	eps := flag.Float64("eps", 0.000001, "eps")
+	iters := flag.Int("iters", 1000, "training iterations")
+	ubatches := flag.Int("ub", 32, "micro-batches")
+	uiters := flag.Int("ui", 16, "micro-iters")
+	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
+	task := flag.String("task", "", "task data type")
+	vocab := flag.String("vocab", "", "vocab")
+	n := flag.Int("n", 0, "n")
+	maxLen := flag.Int("max", 0, "max")
+	flag.Parse()
+
+	switch *mode {
+	case "load":
+		if *prompt == "" {
+			log.Panicln("empty prompt")
+		}
+		model := load(*modelpath)
+		model.solve([]rune(*prompt))
+	case "train-spsa":
+		if *dattn == 0 {
+			*dattn = *dmodel
+		}
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+		model := trainSpsa(
+			*dmodel, *context, *dattn, *attn, *blocks,
+			trainingSet, validationSet,
+			*spsa, *iters, *ubatches, *uiters, *lr, *eps,
+			*seed,
+		)
+		store(model, *modelpath)
+	case "train-sgd":
+		if *dattn == 0 {
+			*dattn = *dmodel
+		}
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+		model := trainSgd(
+			*dmodel, *context, *dattn, *attn, *blocks,
+			trainingSet, validationSet,
+			*iters, *ubatches, *uiters, *lr,
+			*seed,
+		)
+		store(model, *modelpath)
+	case "train-adam":
+		if *dattn == 0 {
+			*dattn = *dmodel
+		}
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+		model := trainAdam(
+			*dmodel, *context, *dattn, *attn, *blocks,
+			trainingSet, validationSet,
+			*iters, *ubatches, *uiters, *lr,
+			*seed,
+		)
+		store(model, *modelpath)
+	case "gen":
+		if len(*vocab) == 0 {
+			log.Fatal("empty vocab")
+		}
+		runes := []rune(*vocab)
+		rng := rand.New(rand.NewSource(*seed))
+		switch *task {
+		case "copy":
+			for _, data := range genCopyDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "reverse":
+			for _, data := range genReverseDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "index":
+			for _, data := range genIndexDataset(runes, *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		case "kv":
+			split := strings.Split(*vocab, ",")
+			for _, data := range genKVdataset([]rune(split[0]), []rune(split[1]), *maxLen, *n, rng) {
+				fmt.Println(string(data))
+			}
+		default:
+			log.Fatalf("unknown task %s", *task)
+		}
+	case "eval":
+		model := load(*modelpath)
+		validationSet, _ := readTrainingData(*datapath, *vsize, 0)
+		tr := newTraining(model)
+		tr.validation = validationSet
+		loss := tr.validate(model)
+		fmt.Printf("Loss: %.12f\n", loss)
+		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
+	default:
+		log.Fatalf("unknown mode %s", *mode)
+	}
 }
 
 func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {

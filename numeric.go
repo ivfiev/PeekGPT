@@ -15,7 +15,7 @@ type (
 	matrix = *mat.Dense
 )
 
-type objective interface {
+type spsaObjective interface {
 	eval2([]vector, []vector, int) (vector, vector)
 }
 
@@ -259,7 +259,7 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsa(obj objective, theta vector, samples, iters int, lr, eps float64, seed int64) {
+func spsa(obj spsaObjective, theta vector, samples, iters int, lr, eps float64, seed int64) {
 	ones := make([]vector, samples)
 	dPlus := make([]vector, samples)
 	dMinus := make([]vector, samples)
@@ -284,6 +284,41 @@ func spsa(obj objective, theta vector, samples, iters int, lr, eps float64, seed
 		for i := range samples {
 			d := (plus[i] - minus[i]) / (2 * eps)
 			addVec2(theta, ones[i], -d*lr/float64(samples))
+		}
+	}
+}
+
+func sgd(t *training, theta vector, iters int, lr float64) {
+	grad := make(vector, len(theta))
+	for i := range iters {
+		mulVec(grad, 0)
+		t.eval1(theta, grad, i)
+		addVec2(theta, grad, -lr)
+	}
+}
+
+func adam(t *training, theta vector, iters int, lr float64) {
+	const (
+		b1  = 0.9
+		b2  = 0.999
+		eps = 1e-8
+	)
+	grad := make(vector, len(theta))
+	m := make(vector, len(theta))
+	v := make(vector, len(theta))
+	b1t, b2t := 1.0, 1.0
+	for iter := range iters {
+		mulVec(grad, 0)
+		t.eval1(theta, grad, iter)
+		b1t *= b1
+		b2t *= b2
+		for i := range grad {
+			m[i] = b1*m[i] + (1-b1)*grad[i]
+			v[i] = b2*v[i] + (1-b2)*grad[i]*grad[i]
+			mhat := m[i] / (1 - b1t)
+			vhat := v[i] / (1 - b2t)
+			dt := mhat / (math.Sqrt(vhat) + eps)
+			theta[i] -= lr * dt
 		}
 	}
 }

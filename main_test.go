@@ -112,13 +112,67 @@ func TestSPSA(te *testing.T) {
 	}
 }
 
-func TestIntegration(te *testing.T) {
+func TestIntegrationSPSA(te *testing.T) {
 	var seed int64 = 7359
 	rng := rand.New(rand.NewSource(seed))
-	m := train(16, 5, 4, 3, 2,
+	m := trainSpsa(16, 5, 4, 3, 2,
 		genCopyDataset([]rune("123"), 2, 30, rng),
 		genCopyDataset([]rune("123"), 2, 10, rng),
 		4, 1000, 8, 4, 0.01, 0.00001, seed)
+	assert := func(expected string) {
+		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
+		toks, _ := m.predict(ctx)
+		actual := string(toks[len(expected)+1 : len(expected)*2+1])
+		if expected != actual {
+			te.Fatalf("Integration %s != %s", expected, actual)
+		}
+	}
+	assert("21")
+	assert("32")
+	assert("11")
+	assert("22")
+	assert("33")
+	assert("13")
+	assert("31")
+	assert("3")
+	assert("2")
+	assert("1")
+}
+
+func TestIntegrationSGD(te *testing.T) {
+	var seed int64 = 7359
+	rng := rand.New(rand.NewSource(seed))
+	m := trainSgd(16, 5, 4, 3, 2,
+		genCopyDataset([]rune("123"), 2, 30, rng),
+		genCopyDataset([]rune("123"), 2, 10, rng),
+		1000, 4, 8, 0.1, seed)
+	assert := func(expected string) {
+		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
+		toks, _ := m.predict(ctx)
+		actual := string(toks[len(expected)+1 : len(expected)*2+1])
+		if expected != actual {
+			te.Fatalf("Integration %s != %s", expected, actual)
+		}
+	}
+	assert("21")
+	assert("32")
+	assert("11")
+	assert("22")
+	assert("33")
+	assert("13")
+	assert("31")
+	assert("3")
+	assert("2")
+	assert("1")
+}
+
+func TestIntegrationAdam(te *testing.T) {
+	var seed int64 = 7359
+	rng := rand.New(rand.NewSource(seed))
+	m := trainAdam(16, 5, 4, 3, 2,
+		genCopyDataset([]rune("123"), 2, 30, rng),
+		genCopyDataset([]rune("123"), 2, 10, rng),
+		1000, 4, 8, 0.002, seed)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := m.predict(ctx)

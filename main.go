@@ -27,8 +27,7 @@ func main() {
 	blocks := flag.Int("blocks", 1, "blocks")
 	lr := flag.Float64("lr", 0.0001, "learning rate")
 	iters := flag.Int("iters", 1000, "training iterations")
-	ubatches := flag.Int("ub", 32, "micro-batches")
-	uiters := flag.Int("ui", 16, "micro-iters")
+	ubatches := flag.Int("ub", 64, "micro-batches")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
 	task := flag.String("task", "", "task data type")
 	vocab := flag.String("vocab", "", "vocab")
@@ -43,7 +42,7 @@ func main() {
 		}
 		model := load(*modelpath)
 		model.solve([]rune(*prompt))
-	case "train-adam":
+	case "train":
 		if *dattn == 0 {
 			*dattn = *dmodel
 		}
@@ -51,7 +50,7 @@ func main() {
 		model := train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,
-			*iters, *ubatches, *uiters, *lr,
+			*iters, *ubatches, *lr,
 			*seed,
 		)
 		store(model, *modelpath)

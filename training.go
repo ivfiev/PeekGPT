@@ -17,7 +17,6 @@ type training struct {
 
 	iters    int
 	ubatches []int
-	uiters   int
 
 	rng *rand.Rand
 }
@@ -33,7 +32,7 @@ func newTraining(m *model) *training {
 
 func (t *training) train(
 	data, validation [][]rune,
-	iters, ubatches, uiters int,
+	iters, ubatches int,
 	lr float64,
 	seed int64,
 ) *model {
@@ -51,7 +50,6 @@ func (t *training) train(
 	m.dump(theta)
 	t.ubatches = make([]int, ubatches)
 	t.rng = rng
-	t.uiters = uiters
 	adam(t, theta, iters, lr)
 	m.apply(theta)
 	return m
@@ -113,9 +111,7 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 }
 
 func (t *training) eval(theta, grad vector, i int) {
-	if i%t.uiters == 0 {
-		t.loadBatch()
-	}
+	t.loadBatch()
 	m := t.model
 	m.apply(theta)
 	for _, i := range t.ubatches {
@@ -124,7 +120,7 @@ func (t *training) eval(theta, grad vector, i int) {
 		m.grad(t.grad)
 		addVec2(grad, t.grad, 1/float64(len(t.ubatches)))
 	}
-	if i%250 == 0 {
+	if i%100 == 0 {
 		loss := t.validate(m)
 		fmt.Printf("\r              ")
 		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(t.iters)*100))
@@ -134,7 +130,7 @@ func (t *training) eval(theta, grad vector, i int) {
 func train(
 	dModel, context, dAttn, attn, blocks int,
 	data, validation [][]rune,
-	iters, ubatches, uiters int,
+	iters, ubatches int,
 	lr float64,
 	seed int64,
 ) *model {
@@ -142,7 +138,7 @@ func train(
 	t := newTraining(m)
 	t.iters = iters
 	now := time.Now().UnixMilli()
-	t.train(data, validation, iters, ubatches, uiters, lr, seed)
+	t.train(data, validation, iters, ubatches, lr, seed)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
 	return t.model
 }

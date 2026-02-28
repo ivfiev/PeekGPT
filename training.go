@@ -10,6 +10,7 @@ import (
 
 type training struct {
 	model *model
+	grad  vector
 
 	training   [][]rune
 	validation [][]rune
@@ -19,8 +20,6 @@ type training struct {
 	uiters   int
 
 	rng *rand.Rand
-
-	grad vector
 }
 
 func newTraining(m *model) *training {

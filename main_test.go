@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
-	"time"
 )
 
 func testMat(data [][]float64) matrix {
@@ -68,108 +67,10 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 	}
 }
 
-type testquad struct {
-	minimum vector
-	us      vector
-	vs      vector
-}
-
-func (q *testquad) eval(theta vector) float64 {
-	sum := 0.0
-	for i := range theta {
-		sum += (theta[i] - q.minimum[i]) * (theta[i] - q.minimum[i])
-	}
-	return sum
-}
-
-func (q *testquad) eval2(us, vs []vector, i int) (vector, vector) {
-	for i := range us {
-		q.us[i] = q.eval(us[i])
-		q.vs[i] = q.eval(vs[i])
-	}
-	return q.us, q.vs
-}
-
-func TestSPSA(te *testing.T) {
-	const size = 100
-	q := testquad{
-		minimum: make(vector, size),
-		us:      make(vector, 9),
-		vs:      make(vector, 9),
-	}
-	theta := make(vector, size)
-	seed := time.Now().UnixNano()
-	rng := rand.New(rand.NewSource(seed))
-	for i := range size {
-		q.minimum[i] = rng.Float64() * 10
-		theta[i] = -rng.Float64() * 10
-	}
-	spsa(&q, theta, 4, 2000, 0.005, 0.0001, seed)
-	loss := q.eval(theta)
-	if loss > 0.001 {
-		fmt.Printf("SPSA loss: %f, seed: %d\n", loss, seed)
-		te.Fatal("SPSA failed to find minima")
-	}
-}
-
-func TestIntegrationSPSA(te *testing.T) {
-	var seed int64 = 7359
-	rng := rand.New(rand.NewSource(seed))
-	m := trainSpsa(16, 5, 4, 3, 2,
-		genCopyDataset([]rune("123"), 2, 30, rng),
-		genCopyDataset([]rune("123"), 2, 10, rng),
-		4, 1000, 8, 4, 0.01, 0.00001, seed)
-	assert := func(expected string) {
-		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
-		toks, _ := m.predict(ctx)
-		actual := string(toks[len(expected)+1 : len(expected)*2+1])
-		if expected != actual {
-			te.Fatalf("Integration %s != %s", expected, actual)
-		}
-	}
-	assert("21")
-	assert("32")
-	assert("11")
-	assert("22")
-	assert("33")
-	assert("13")
-	assert("31")
-	assert("3")
-	assert("2")
-	assert("1")
-}
-
-func TestIntegrationSGD(te *testing.T) {
-	var seed int64 = 7359
-	rng := rand.New(rand.NewSource(seed))
-	m := trainSgd(16, 5, 4, 3, 2,
-		genCopyDataset([]rune("123"), 2, 30, rng),
-		genCopyDataset([]rune("123"), 2, 10, rng),
-		1000, 4, 8, 0.1, seed)
-	assert := func(expected string) {
-		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
-		toks, _ := m.predict(ctx)
-		actual := string(toks[len(expected)+1 : len(expected)*2+1])
-		if expected != actual {
-			te.Fatalf("Integration %s != %s", expected, actual)
-		}
-	}
-	assert("21")
-	assert("32")
-	assert("11")
-	assert("22")
-	assert("33")
-	assert("13")
-	assert("31")
-	assert("3")
-	assert("2")
-	assert("1")
-}
-
 func TestIntegrationAdam(te *testing.T) {
 	var seed int64 = 7359
 	rng := rand.New(rand.NewSource(seed))
-	m := trainAdam(16, 5, 4, 3, 2,
+	m := train(16, 5, 4, 3, 2,
 		genCopyDataset([]rune("123"), 2, 30, rng),
 		genCopyDataset([]rune("123"), 2, 10, rng),
 		1000, 4, 8, 0.002, seed)

@@ -168,8 +168,6 @@ func main() {
 	attn := flag.Int("attn", 1, "attn")
 	blocks := flag.Int("blocks", 1, "blocks")
 	lr := flag.Float64("lr", 0.0001, "learning rate")
-	spsa := flag.Int("spsa", 8, "SPSA samples")
-	eps := flag.Float64("eps", 0.000001, "eps")
 	iters := flag.Int("iters", 1000, "training iterations")
 	ubatches := flag.Int("ub", 32, "micro-batches")
 	uiters := flag.Int("ui", 16, "micro-iters")
@@ -187,36 +185,12 @@ func main() {
 		}
 		model := load(*modelpath)
 		model.solve([]rune(*prompt))
-	case "train-spsa":
-		if *dattn == 0 {
-			*dattn = *dmodel
-		}
-		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-		model := trainSpsa(
-			*dmodel, *context, *dattn, *attn, *blocks,
-			trainingSet, validationSet,
-			*spsa, *iters, *ubatches, *uiters, *lr, *eps,
-			*seed,
-		)
-		store(model, *modelpath)
-	case "train-sgd":
-		if *dattn == 0 {
-			*dattn = *dmodel
-		}
-		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-		model := trainSgd(
-			*dmodel, *context, *dattn, *attn, *blocks,
-			trainingSet, validationSet,
-			*iters, *ubatches, *uiters, *lr,
-			*seed,
-		)
-		store(model, *modelpath)
 	case "train-adam":
 		if *dattn == 0 {
 			*dattn = *dmodel
 		}
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-		model := trainAdam(
+		model := train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,
 			*iters, *ubatches, *uiters, *lr,

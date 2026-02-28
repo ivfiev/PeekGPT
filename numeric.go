@@ -5,7 +5,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"sync"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -15,16 +14,11 @@ type (
 	matrix = *mat.Dense
 )
 
-type spsaObjective interface {
-	eval2([]vector, []vector, int) (vector, vector)
-}
-
 func makeMat(r, c int) matrix {
 	return mat.NewDense(r, c, nil)
 }
 
 func unmat(A matrix) ([]float64, int, int) {
-	// TODO drop stride, but panic on C != S
 	raw := A.RawMatrix()
 	if raw.Stride != raw.Cols {
 		log.Panicf("Stride %d != Cols %d", raw.Stride, raw.Cols)
@@ -259,40 +253,11 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func spsa(obj spsaObjective, theta vector, samples, iters int, lr, eps float64, seed int64) {
-	ones := make([]vector, samples)
-	dPlus := make([]vector, samples)
-	dMinus := make([]vector, samples)
-	rngs := make([]*rand.Rand, samples)
-	var wg sync.WaitGroup
-	for i := range samples {
-		ones[i] = make(vector, len(theta))
-		dPlus[i] = make(vector, len(theta))
-		dMinus[i] = make(vector, len(theta))
-		rngs[i] = rand.New(rand.NewSource(seed + int64((i+1)*1000)))
-	}
-	for iter := range iters {
-		for i := range samples {
-			wg.Go(func() {
-				rademacher(ones[i], rngs[i])
-				addVec3(dPlus[i], theta, ones[i], eps)
-				addVec3(dMinus[i], theta, ones[i], -eps)
-			})
-		}
-		wg.Wait()
-		plus, minus := obj.eval2(dPlus, dMinus, iter)
-		for i := range samples {
-			d := (plus[i] - minus[i]) / (2 * eps)
-			addVec2(theta, ones[i], -d*lr/float64(samples))
-		}
-	}
-}
-
 func sgd(t *training, theta vector, iters int, lr float64) {
 	grad := make(vector, len(theta))
 	for i := range iters {
 		mulVec(grad, 0)
-		t.eval1(theta, grad, i)
+		t.eval(theta, grad, i)
 		addVec2(theta, grad, -lr)
 	}
 }
@@ -309,7 +274,7 @@ func adam(t *training, theta vector, iters int, lr float64) {
 	b1t, b2t := 1.0, 1.0
 	for iter := range iters {
 		mulVec(grad, 0)
-		t.eval1(theta, grad, iter)
+		t.eval(theta, grad, iter)
 		b1t *= b1
 		b2t *= b2
 		for i := range grad {

@@ -72,7 +72,7 @@ func assert(f func(*model) (any, any), label string, args ...any) {
 }
 
 func main() {
-	assert(func(m *model) (any, any) { return m.linear, m.dlinear }, "linear")
+	assert(func(m *model) (any, any) { return m.unembed, m.dunembed }, "linear")
 	assert(func(m *model) (any, any) { return m.bias2, m.dbias2 }, "bias")
 
 	assert(func(m *model) (any, any) { return m.tokens, m.dtokens }, "tokens", true, true)

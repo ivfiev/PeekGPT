@@ -7,8 +7,8 @@ import (
 
 func (m *model) backward() {
 	m.dLogits()
-	m.dLinear()
-	mulMatT(m.blocks[len(m.blocks)-1].dR1, m.dL, m.linear)
+	m.dUnembed()
+	mulMatT(m.blocks[len(m.blocks)-1].dR1, m.dL, m.unembed)
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		m.blocks[i].backward()
 		if i > 0 {
@@ -114,10 +114,10 @@ func (b *block) dSVs() {
 	}
 }
 
-func (m *model) dLinear() {
-	m.dlinear.Zero()
+func (m *model) dUnembed() {
+	m.dunembed.Zero()
 	block := m.blocks[len(m.blocks)-1]
-	mulTmat(m.dlinear, block.R1, m.dL)
+	mulTmat(m.dunembed, block.R1, m.dL)
 	sumCols(m.dbias2, m.dL)
 }
 

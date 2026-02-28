@@ -39,7 +39,7 @@ func (m *model) calcHeatmap(x int, As []matrix) []vector {
 	d, _, c, s := unmat(m.L)
 	_, rmix := rowMax(d[x*s : x*s+c])
 	for i := range m.dModel {
-		target[i] = m.linear.At(i, rmix)
+		target[i] = m.unembed.At(i, rmix)
 	}
 	maxProd := math.Inf(-1)
 	minProd := math.Inf(1)

@@ -23,16 +23,16 @@ type model struct {
 	blocks []*block
 
 	// to-logit map parameters
-	linear matrix // TODO unembed
-	bias2  vector
+	unembed matrix // TODO unembed
+	bias2   vector
 
 	// logits
 	L matrix
 
 	// derivatives
-	dL      matrix
-	dlinear matrix // TODO dunembed
-	dbias2  vector
+	dL       matrix
+	dunembed matrix // TODO dunembed
+	dbias2   vector
 
 	dtokens    matrix
 	dpositions matrix
@@ -147,7 +147,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, ReLU)
 	}
 
-	m.linear = makeMat(dModel, dVocab)
+	m.unembed = makeMat(dModel, dVocab)
 	m.bias2 = make(vector, dVocab)
 	m.L = makeMat(ctx, dVocab)
 
@@ -155,7 +155,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 	m.vocab = vocab
 
 	m.dL = makeMat(ctx, dVocab)
-	m.dlinear = makeMat(dModel, dVocab)
+	m.dunembed = makeMat(dModel, dVocab)
 	m.dbias2 = make(vector, dVocab)
 
 	m.dtokens = makeMat(dVocab, dModel)
@@ -284,7 +284,7 @@ func (m *model) forward() {
 		b.forward()
 		xs = b.R1
 	}
-	mulMat(m.L, xs, m.linear)
+	mulMat(m.L, xs, m.unembed)
 	addMatV(m.L, m.bias2)
 }
 
@@ -347,7 +347,7 @@ func (m *model) size() int {
 	return blocks +
 		len(m.tokens.RawMatrix().Data) +
 		len(m.positions.RawMatrix().Data) +
-		len(m.linear.RawMatrix().Data) +
+		len(m.unembed.RawMatrix().Data) +
 		len(m.bias2)
 }
 
@@ -491,7 +491,7 @@ func (m *model) rand(rng *rand.Rand) {
 			b.bias1[i] = 0
 		}
 	}
-	mat(m.linear, 0.2)
+	mat(m.unembed, 0.2)
 	for i := range m.bias2 {
 		m.bias2[i] = 0
 	}
@@ -526,7 +526,7 @@ func (m *model) apply(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
-	mat(m.linear)
+	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
@@ -562,7 +562,7 @@ func (m *model) dump(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
-	mat(m.linear)
+	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")
@@ -599,7 +599,7 @@ func (m *model) grad(theta vector) {
 		mat(b.dhidden)
 		vec(b.dbias1)
 	}
-	mat(m.dlinear)
+	mat(m.dunembed)
 	vec(m.dbias2)
 	if M != len(theta) {
 		log.Fatal("mismatch between len(theta) and model size")

@@ -333,7 +333,7 @@ func TestBlocksE2E(te *testing.T) {
 
 	assertEq(m.blocks[1].XS0, m.blocks[0].R1, "1.xs0", te)
 
-	mulMat(mat33, m.blocks[1].R1, m.linear)
+	mulMat(mat33, m.blocks[1].R1, m.unembed)
 	addMatV(mat33, m.bias2)
 	assertEq(m.L, mat33, "t.L", te)
 
@@ -347,7 +347,7 @@ func TestBlocksE2E(te *testing.T) {
 
 func TestHeatmaps(te *testing.T) {
 	m := newModel(4, 3, 4, 1, 1, []rune("abc"))
-	m.linear = testMat([][]float64{
+	m.unembed = testMat([][]float64{
 		{1, 1, 1},
 		{1, 1, -1},
 		{1, 1, -1},
@@ -503,7 +503,7 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.hidden, func(f float64) bool { return f != 0 })
 		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
-	assert(m.linear, func(f float64) bool { return f != 0 })
+	assert(m.unembed, func(f float64) bool { return f != 0 })
 	assert(m.bias2, func(f float64) bool { return f == 0 })
 
 	theta := make(vector, m.size())
@@ -529,7 +529,7 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.hidden, func(f float64) bool { return f == 7357 })
 		assert(b.bias1, func(f float64) bool { return f == 7357 })
 	}
-	assert(m.linear, func(f float64) bool { return f == 7357 })
+	assert(m.unembed, func(f float64) bool { return f == 7357 })
 	assert(m.bias2, func(f float64) bool { return f == 7357 })
 
 	for i := range theta {

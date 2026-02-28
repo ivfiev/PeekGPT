@@ -584,8 +584,22 @@ func TestMatrixCat(te *testing.T) {
 
 func TestBackprop(te *testing.T) {
 	const eps = 1e-7
+	rng := rand.New(rand.NewSource(7357))
 	m := newModel(4, 3, 2, 2, 3, []rune("abcde"))
-	m.rand(rand.New(rand.NewSource(7357)))
+	m.rand(rng)
+	for i := range m.dModel {
+		m.bias2[i] = -0.5 + rng.Float64()
+	}
+	for _, b := range m.blocks {
+		for i := range m.dModel {
+			b.bias0[i] = -0.5 + rng.Float64()
+			b.bias1[i] = -0.5 + rng.Float64()
+			b.gamma0[i] = 0.7 + rng.Float64()
+			b.gamma1[i] = 0.8 + rng.Float64()
+			b.beta0[i] = -0.5 + rng.Float64()
+			b.beta1[i] = -0.5 + rng.Float64()
+		}
+	}
 	expected := make(vector, m.size())
 	actual := make(vector, m.size())
 	finiteDiff := func(prompt []rune) {

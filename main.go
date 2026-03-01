@@ -58,6 +58,7 @@ func main() {
 			trainingSet, validationSet,
 			*iters, *ubatches, *lr,
 			*seed,
+			nil,
 		)
 		store(model, *modelpath)
 	case "shakespeare":
@@ -70,11 +71,13 @@ func main() {
 		}
 		runes := []rune(string(bytes))
 		trainingSet, validationSet := [][]rune{runes[250:]}, [][]rune{runes[:250]}
+		stored := load(*modelpath)
 		model := train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,
 			*iters, *ubatches, *lr,
 			*seed,
+			stored,
 		)
 		store(model, *modelpath)
 	case "gen":

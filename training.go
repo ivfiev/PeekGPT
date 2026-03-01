@@ -30,8 +30,6 @@ type training struct {
 }
 
 func newTraining(m *model) *training {
-	models := make([]*model, 64)
-	models[0] = m
 	return &training{
 		model: m,
 		grad:  make(vector, m.size()),
@@ -54,7 +52,7 @@ func (t *training) train(
 	m.vocab = vocab
 	theta := make(vector, m.size())
 	rng := rand.New(rand.NewSource(seed))
-	m.rand(rng)
+	// m.rand(rng)
 	m.dump(theta)
 	t.ubatches = make([]int, ubatches)
 	t.rng = rng
@@ -167,12 +165,15 @@ func train(
 	iters, ubatches int,
 	lr float64,
 	seed int64,
+	m *model,
 ) *model {
 	mode := task
 	if len(data) == 1 {
 		mode = text
 	}
-	m := newModel(dModel, context, dAttn, attn, blocks, getVocab(data, mode))
+	if m == nil {
+		m = newModel(dModel, context, dAttn, attn, blocks, getVocab(data, mode))
+	}
 	t := newTraining(m)
 	t.mode = mode
 	t.iters = iters

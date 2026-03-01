@@ -42,11 +42,34 @@ func main() {
 		}
 		model := load(*modelpath)
 		model.solve([]rune(*prompt))
+	case "slop":
+		if *prompt == "" {
+			log.Panicln("empty prompt")
+		}
+		model := load(*modelpath)
+		model.generate([]rune(*prompt), *n)
 	case "train":
 		if *dattn == 0 {
 			*dattn = *dmodel
 		}
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+		model := train(
+			*dmodel, *context, *dattn, *attn, *blocks,
+			trainingSet, validationSet,
+			*iters, *ubatches, *lr,
+			*seed,
+		)
+		store(model, *modelpath)
+	case "shakespeare":
+		if *dattn == 0 {
+			*dattn = *dmodel
+		}
+		bytes, err := os.ReadFile("./data/shakespeare")
+		if err != nil {
+			log.Panic(err)
+		}
+		runes := []rune(string(bytes))
+		trainingSet, validationSet := [][]rune{runes[250:]}, [][]rune{runes[:250]}
 		model := train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,

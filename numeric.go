@@ -227,17 +227,6 @@ func ReLU(x float64) float64 {
 	return max(0, x)
 }
 
-func rademacher(v vector, rng *rand.Rand) vector {
-	for i := range len(v) {
-		if rng.Float32() < 0.5 {
-			v[i] = -1
-		} else {
-			v[i] = 1
-		}
-	}
-	return v
-}
-
 func softSample(logits vector) int {
 	rm, _ := rowMax(logits)
 	sum := rowSum(logits, rm)

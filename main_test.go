@@ -73,7 +73,7 @@ func TestIntegrationAdam(te *testing.T) {
 	m := train(16, 5, 4, 3, 2,
 		genCopyDataset([]rune("123"), 2, 30, rng),
 		genCopyDataset([]rune("123"), 2, 10, rng),
-		109, 4, 0.01, seed)
+		109, 4, 0.01, seed, nil)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := m.predict(ctx)

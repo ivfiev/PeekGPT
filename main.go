@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "load", "train/load/eval/gen")
+	mode := flag.String("mode", "load", "train/solve/eval (loss)/gen (data)/prompt")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")
 	prompt := flag.String("prompt", "", "prompt")
@@ -33,53 +33,42 @@ func main() {
 	vocab := flag.String("vocab", "", "vocab")
 	n := flag.Int("n", 0, "n")
 	maxLen := flag.Int("max", 0, "max")
+	textmode := flag.Bool("text", false, "text generation mode")
 	flag.Parse()
 
 	switch *mode {
-	case "load":
+	case "solve":
 		if *prompt == "" {
 			log.Panicln("empty prompt")
 		}
 		model := load(*modelpath)
 		model.solve([]rune(*prompt))
-	case "slop":
+
+	case "prompt":
 		if *prompt == "" {
 			log.Panicln("empty prompt")
 		}
 		model := load(*modelpath)
 		model.generate([]rune(*prompt), *n)
+
 	case "train":
 		if *dattn == 0 {
 			*dattn = *dmodel
 		}
-		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
+		checkpoint := load(*modelpath)
+		if checkpoint != nil {
+			log.Printf("checkpoint found at [%s], model parameters ignored", *modelpath)
+		}
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
 		model := train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,
 			*iters, *ubatches, *lr,
 			*seed,
-			nil,
+			checkpoint,
 		)
 		store(model, *modelpath)
-	case "shakespeare":
-		if *dattn == 0 {
-			*dattn = *dmodel
-		}
-		bytes, err := os.ReadFile("./data/shakespeare")
-		if err != nil {
-			log.Panic(err)
-		}
-		runes := []rune(string(bytes))
-		trainingSet, validationSet := [][]rune{runes[250:]}, [][]rune{runes[:250]}
-		stored := load(*modelpath)
-		model := train(
-			*dmodel, *context, *dattn, *attn, *blocks,
-			trainingSet, validationSet,
-			*iters, *ubatches, *lr,
-			*seed,
-			stored,
-		)
-		store(model, *modelpath)
+
 	case "gen":
 		if len(*vocab) == 0 {
 			log.Fatal("empty vocab")
@@ -107,30 +96,38 @@ func main() {
 		default:
 			log.Fatalf("unknown task %s", *task)
 		}
+
 	case "eval":
 		model := load(*modelpath)
-		validationSet, _ := readTrainingData(*datapath, *vsize, 0)
+		validationSet, _ := readTrainingData(*datapath, *vsize, 0, *textmode)
 		tr := newTraining(model)
 		tr.validation = validationSet
 		loss := tr.validate(model)
 		fmt.Printf("Loss: %.12f\n", loss)
 		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
+
 	default:
 		log.Fatalf("unknown mode %s", *mode)
 	}
 }
 
-func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {
-	data := make([][]rune, 0)
+func readTrainingData(path string, t, v int, textmode bool) ([][]rune, [][]rune) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		log.Panic(err)
 	}
-	words := strings.SplitSeq(string(bytes), "\n")
-	for word := range words {
-		data = append(data, []rune(strings.TrimSpace(word)))
+	if textmode {
+		runes := []rune(string(bytes))
+		trainingSet, validationSet := [][]rune{runes[v:]}, [][]rune{runes[:v]}
+		return trainingSet, validationSet
+	} else {
+		data := make([][]rune, 0)
+		words := strings.SplitSeq(string(bytes), "\n")
+		for word := range words {
+			data = append(data, []rune(strings.TrimSpace(word)))
+		}
+		return data[:t], data[t : t+v]
 	}
-	return data[:t], data[t : t+v]
 }
 
 type stored struct {
@@ -166,7 +163,8 @@ func load(path string) *model {
 	stored := &stored{}
 	file, err := os.OpenFile(path, os.O_RDONLY, 0o777)
 	if err != nil {
-		log.Panic(err)
+		log.Print(err, ", a new model may be created")
+		return nil
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)

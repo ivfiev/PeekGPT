@@ -36,33 +36,8 @@ func newTraining(m *model) *training {
 	}
 }
 
-func (t *training) train(
-	data, validation [][]rune,
-	iters, ubatches int,
-	lr float64,
-	seed int64,
-) *model {
-	m := t.model
-	vocab := getVocab(data, t.mode)
-	if !slices.Equal(vocab, m.vocab) {
-		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(m.vocab))
-	}
-	t.training = data
-	t.validation = validation
-	m.vocab = vocab
-	theta := make(vector, m.size())
-	rng := rand.New(rand.NewSource(seed))
-	// m.rand(rng)
-	m.dump(theta)
-	t.ubatches = make([]int, ubatches)
-	t.rng = rng
-	adam(t, theta, iters, lr)
-	m.apply(theta)
-	return m
-}
-
 func getVocab(data [][]rune, mode tmode) []rune {
-	vocab := make([]rune, 0, len(data))
+	vocab := make([]rune, 0)
 	for _, str := range data {
 		for _, tok := range str {
 			if tok == '=' && mode == task {
@@ -165,20 +140,37 @@ func train(
 	iters, ubatches int,
 	lr float64,
 	seed int64,
-	m *model,
+	checkpoint *model,
 ) *model {
 	mode := task
 	if len(data) == 1 {
 		mode = text
 	}
-	if m == nil {
-		m = newModel(dModel, context, dAttn, attn, blocks, getVocab(data, mode))
+	vocab := getVocab(slices.Concat(data, validation), mode)
+	m := checkpoint
+	if checkpoint == nil {
+		m = newModel(dModel, context, dAttn, attn, blocks, vocab)
 	}
 	t := newTraining(m)
 	t.mode = mode
 	t.iters = iters
 	now := time.Now().UnixMilli()
-	t.train(data, validation, iters, ubatches, lr, seed)
+	if !slices.Equal(vocab, m.vocab) {
+		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(m.vocab))
+	}
+	t.training = data
+	t.validation = validation
+	m.vocab = vocab
+	theta := make(vector, m.size())
+	rng := rand.New(rand.NewSource(seed))
+	if checkpoint == nil {
+		m.rand(rng)
+	}
+	t.rng = rng
+	m.dump(theta)
+	t.ubatches = make([]int, ubatches)
+	adam(t, theta, iters, lr)
+	m.apply(theta)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
 	return t.model
 }

@@ -15,9 +15,18 @@ Included are some simple tasks for training, eg copy/reverse/index a string, sum
 
 ## Example
 
-`make run`
+#### Execute unit tests:
+`go test`
 
-Reverse-a-string task, 50k parameters, dmodel 64, context size 9, 2 blocks.
+#### Generate some training data. Available tasks - `reverse`, `copy`, `kv`, `index`.
+`go run . -mode gen -task reverse -n 10000 -max 10 -vocab 1234567890 > data/reverse10`
+
+#### Training. For above tasks loss of 0 is easily achievable.
+`go run . -mode train -data ./data/reverse10 -model ./models/reverse10 -t 9500 -v 500 -dmodel 48 -ctx 21 -dattn 24 -attn 2 -blocks 2 -lr 0.001 -iters 500`
+
+#### Inference.
+`go run . -mode load -model ./models/reverse10 -prompt '123456789|?????????'`
+
 
 ### Heatmap
 Shows the transformations to the input vector as it progresses through the model.

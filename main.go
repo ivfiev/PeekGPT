@@ -57,7 +57,7 @@ func main() {
 		}
 		checkpoint := load(*modelpath)
 		if checkpoint != nil {
-			log.Printf("checkpoint found at [%s], model parameters ignored", *modelpath)
+			log.Printf("checkpoint found at [%s], cli parameters ignored", *modelpath)
 		}
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
 		model := train(

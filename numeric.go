@@ -45,7 +45,7 @@ func mulMatK(a matrix, k float64) {
 func addMatV(A matrix, v vector) {
 	d, r, c := unmat(A)
 	if c != len(v) {
-		log.Panicf("addMatV: bad dimensions, %d + %d\n", r, len(v))
+		log.Panicf("addMatV: bad dimensions, %d + %d\n", c, len(v))
 	}
 	for i := range r {
 		for j := range c {
@@ -263,7 +263,7 @@ func adam(t *training, theta vector, iters int, lr float64) {
 	b1t, b2t := 1.0, 1.0
 	for iter := range iters {
 		mulVec(grad, 0)
-		t.eval(theta, grad, iter)
+		t.eval(theta, grad, 1+iter)
 		b1t *= b1
 		b2t *= b2
 		for i := range grad {

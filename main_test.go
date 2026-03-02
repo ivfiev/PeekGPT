@@ -73,7 +73,7 @@ func TestIntegrationAdam(te *testing.T) {
 	m := train(16, 5, 4, 3, 2,
 		genCopyDataset([]rune("123"), 2, 30, rng),
 		genCopyDataset([]rune("123"), 2, 10, rng),
-		109, 4, 0.01, seed, nil)
+		60, 4, 0.01, seed, nil)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := m.predict(ctx)
@@ -214,9 +214,10 @@ func TestBlocksE2E(te *testing.T) {
 		{2, 1, 0, -1},
 	})
 	m.bias2 = vector{1, 2, 3}
-	m.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4}
+	m.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4, -0.12, -0.24, 0.36, 0.48}
 	m.blocks[0].bias1 = vector{-0.1, -0.2, 0.3, 0.4}
 	mat34 := makeMat(3, 4)
+	mat38 := makeMat(3, 8)
 	mat33 := makeMat(3, 3)
 	mat32 := makeMat(3, 2)
 	m.forward()
@@ -272,12 +273,12 @@ func TestBlocksE2E(te *testing.T) {
 	layerNorm(mat34, m.blocks[0].R0, m.blocks[0].gamma1, m.blocks[0].beta1)
 	assertEq(mat34, m.blocks[0].XS2, "0.xs2", te)
 
-	mulMat(mat34, m.blocks[0].XS2, m.blocks[0].input)
-	addMatV(mat34, m.blocks[0].bias0)
-	assertEq(mat34, m.blocks[0].I, "0.I", te)
+	mulMat(mat38, m.blocks[0].XS2, m.blocks[0].input)
+	addMatV(mat38, m.blocks[0].bias0)
+	assertEq(mat38, m.blocks[0].I, "0.I", te)
 
-	mapMat(mat34, m.blocks[0].I, ReLU)
-	assertEq(mat34, m.blocks[0].A, "0.A", te)
+	mapMat(mat38, m.blocks[0].I, ReLU)
+	assertEq(mat38, m.blocks[0].A, "0.A", te)
 
 	mulMat(mat34, m.blocks[0].A, m.blocks[0].hidden)
 	addMatV(mat34, m.blocks[0].bias1)
@@ -498,10 +499,14 @@ func TestMatrixInit(te *testing.T) {
 	theta2 := make(vector, m.size())
 	m.rand(rand.New(rand.NewSource(7737)))
 	m.bias2 = vector{1, 1, 1}
-	m.blocks[0].bias0 = vector{2, 2, 2, 2}
+	m.blocks[0].bias0 = vector{2, 2, 2, 2, 2, 2, 2, 2}
 	m.blocks[0].bias1 = vector{3, 3, 3, 3}
 	m.blocks[0].beta0 = vector{4, 4, 4, 4}
 	m.blocks[0].beta1 = vector{5, 5, 5, 5}
+	m.blocks[1].bias0 = vector{20, 20, 20, 20, 20, 20, 20, 20}
+	m.blocks[1].bias1 = vector{30, 30, 30, 30}
+	m.blocks[1].beta0 = vector{40, 40, 40, 40}
+	m.blocks[1].beta1 = vector{50, 50, 50, 50}
 	m.dump(theta1)
 	m.apply(theta1)
 	m.dump(theta2)

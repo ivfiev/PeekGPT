@@ -192,10 +192,10 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.beta1 = make(vector, dModel)
 	b.XS2 = makeMat(ctx, dModel)
 
-	b.input = makeMat(dModel, dModel)
-	b.bias0 = make(vector, dModel)
+	b.input = makeMat(dModel, 2*dModel)
+	b.bias0 = make(vector, 2*dModel)
 	b.activation = activation
-	b.hidden = makeMat(dModel, dModel)
+	b.hidden = makeMat(2*dModel, dModel)
 	b.bias1 = make(vector, dModel)
 
 	b.Q = make([]matrix, attn)
@@ -216,18 +216,18 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.P = makeMat(ctx, dModel)
 	b.R0 = makeMat(ctx, dModel)
 	b.R1 = makeMat(ctx, dModel)
-	b.I = makeMat(ctx, dModel)
-	b.A = makeMat(ctx, dModel)
+	b.I = makeMat(ctx, 2*dModel)
+	b.A = makeMat(ctx, 2*dModel)
 	b.H = makeMat(ctx, dModel)
 
 	b.dR1 = makeMat(ctx, dModel)
 	b.dH = makeMat(ctx, dModel)
-	b.dhidden = makeMat(dModel, dModel)
+	b.dhidden = makeMat(2*dModel, dModel)
 	b.dbias1 = make(vector, dModel)
-	b.dA = makeMat(ctx, dModel)
-	b.dI = makeMat(ctx, dModel)
-	b.dinput = makeMat(dModel, dModel)
-	b.dbias0 = make(vector, dModel)
+	b.dA = makeMat(ctx, 2*dModel)
+	b.dI = makeMat(ctx, 2*dModel)
+	b.dinput = makeMat(dModel, 2*dModel)
+	b.dbias0 = make(vector, 2*dModel)
 
 	b.dR0 = makeMat(ctx, dModel)
 	b.dXS2 = makeMat(ctx, dModel)
@@ -422,6 +422,7 @@ func (m *model) generate(ctx []rune, n int) {
 	println()
 }
 
+// TODO adapt for text-gen. maybe pass in a parameter instead of Index('|')
 func (m *model) solve(ctx []rune) {
 	m.loadXs(ctx)
 	m.forward()
@@ -521,7 +522,7 @@ func (m *model) apply(theta vector) {
 	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
+		log.Panic("apply: mismatch between len(theta) and model size")
 	}
 }
 
@@ -557,7 +558,7 @@ func (m *model) dump(theta vector) {
 	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
+		log.Panic("dump: mismatch between len(theta) and model size")
 	}
 }
 
@@ -593,6 +594,6 @@ func (m *model) grad(theta vector) {
 	mat(m.dunembed)
 	vec(m.dbias2)
 	if M != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
+		log.Panic("grad: mismatch between len(theta) and model size")
 	}
 }

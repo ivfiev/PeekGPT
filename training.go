@@ -111,8 +111,9 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 	}
 }
 
-func (t *training) eval(theta, grad vector, i int) {
+func (t *training) eval(theta, grad vector, iter int) {
 	t.loadBatch()
+	tLoss := 0.0
 	m := t.model
 	m.apply(theta)
 	for _, i := range t.ubatches {
@@ -122,15 +123,21 @@ func (t *training) eval(theta, grad vector, i int) {
 		} else {
 			data = t.training[0][i : i+m.context+1] // 0..x, 1..y+1
 		}
-		t.pointLoss(m, data)
+		tLoss += t.pointLoss(m, data) / float64(len(t.ubatches))
 		m.backward()
 		m.grad(t.grad)
 		addVec2(grad, t.grad, 1/float64(len(t.ubatches)))
 	}
-	if i%100 == 0 {
-		loss := t.validate(m)
-		fmt.Printf("\r              ")
-		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(t.iters)*100))
+	if iter%100 == 0 || iter == t.iters {
+		vLoss := t.validate(m)
+		fmt.Println("-")
+		fmt.Printf("Iteration %d\n", iter)
+		fmt.Printf("Training loss: %.3f\n", tLoss)
+		fmt.Printf("Validation loss: %.3f\n", vLoss)
+		fmt.Printf("%d%% done\n", int(float64(iter)/float64(t.iters)*100))
+		if iter == t.iters {
+			fmt.Println("-")
+		}
 	}
 }
 

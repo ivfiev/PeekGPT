@@ -17,6 +17,7 @@ func main() {
 	mode := flag.String("mode", "load", "train/solve/eval (loss)/gen (data)/prompt")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")
+	checkpoint := flag.Bool("checkpoint", false, "continue training existing model")
 	prompt := flag.String("prompt", "", "prompt")
 	tsize := flag.Int("t", 0, "size of the training set")
 	vsize := flag.Int("v", 0, "size of the validation set")
@@ -55,17 +56,18 @@ func main() {
 		if *dattn == 0 {
 			*dattn = *dmodel
 		}
-		checkpoint := load(*modelpath)
-		if checkpoint != nil {
-			log.Printf("checkpoint found at [%s], cli parameters ignored", *modelpath)
+		var model *model
+		if *checkpoint {
+			model = load(*modelpath)
+			log.Printf("Loaded checkpoint [%s]\n", *modelpath)
 		}
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
-		model := train(
+		model = train(
 			*dmodel, *context, *dattn, *attn, *blocks,
 			trainingSet, validationSet,
 			*iters, *ubatches, *lr,
 			*seed,
-			checkpoint,
+			model,
 		)
 		store(model, *modelpath)
 
@@ -163,8 +165,7 @@ func load(path string) *model {
 	stored := &stored{}
 	file, err := os.OpenFile(path, os.O_RDONLY, 0o777)
 	if err != nil {
-		log.Print(err, ", a new model may be created")
-		return nil
+		log.Panic(err)
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)

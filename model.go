@@ -290,6 +290,7 @@ func (m *model) forward() {
 		b.forward()
 		xs = b.R1
 	}
+	// TODO layerNorm?
 	mulMat(m.L, xs, m.unembed)
 	addMatV(m.L, m.bias2)
 }

@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -16,8 +17,8 @@ const (
 )
 
 type training struct {
-	model *model
-	grad  vector
+	models []*model
+	grad   vector
 
 	mode       tmode
 	training   [][]rune
@@ -29,10 +30,18 @@ type training struct {
 	rng *rand.Rand
 }
 
-func newTraining(m *model) *training {
+func newTraining(m *model, parallel int) *training {
+	copies := make([]*model, parallel)
+	for i := range copies {
+		if i == 0 {
+			copies[i] = m
+		} else {
+			copies[i] = m.clone()
+		}
+	}
 	return &training{
-		model: m,
-		grad:  make(vector, m.size()),
+		models: copies,
+		grad:   make(vector, m.size()),
 	}
 }
 
@@ -59,7 +68,7 @@ func (t *training) loadBatch() {
 		}
 	} else {
 		for i := range t.ubatches {
-			ix := t.rng.Int() % (len(t.training[0]) - t.model.context - 1)
+			ix := t.rng.Int() % (len(t.training[0]) - t.models[0].context - 1)
 			t.ubatches[i] = ix
 		}
 	}
@@ -114,22 +123,36 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 func (t *training) eval(theta, grad vector, iter int) {
 	t.loadBatch()
 	tLoss := 0.0
-	m := t.model
-	m.apply(theta)
-	for _, i := range t.ubatches {
-		var data []rune
-		if t.mode == task {
-			data = t.training[i]
-		} else {
-			data = t.training[0][i : i+m.context+1] // 0..x, 1..y+1
+	for _, m := range t.models {
+		m.apply(theta)
+	}
+	var wg sync.WaitGroup
+	threads := 0
+	for i, u := range t.ubatches {
+		model := t.models[threads]
+		wg.Go(func() {
+			var data []rune
+			if t.mode == task {
+				data = t.training[u]
+			} else {
+				data = t.training[0][u : u+model.context+1] // 0..x, 1..y+1
+			}
+			// TODO tLoss race cond
+			tLoss += t.pointLoss(model, data) / float64(len(t.ubatches))
+			model.backward()
+		})
+		threads++
+		if threads == len(t.models) || (i+1) == len(t.ubatches) {
+			wg.Wait()
+			for r := range threads {
+				t.models[r].grad(t.grad)
+				addVec2(grad, t.grad, 1/float64(len(t.ubatches)))
+			}
+			threads = 0
 		}
-		tLoss += t.pointLoss(m, data) / float64(len(t.ubatches))
-		m.backward()
-		m.grad(t.grad)
-		addVec2(grad, t.grad, 1/float64(len(t.ubatches)))
 	}
 	if iter%100 == 0 || iter == t.iters {
-		vLoss := t.validate(m)
+		vLoss := t.validate(t.models[0])
 		fmt.Println("-")
 		fmt.Printf("Iteration %d\n", iter)
 		fmt.Printf("Training loss: %.3f\n", tLoss)
@@ -142,9 +165,9 @@ func (t *training) eval(theta, grad vector, iter int) {
 }
 
 func train(
-	dModel, context, dAttn, attn, blocks int,
+	dModel, context, dAttn, attn, mlp, blocks int,
 	data, validation [][]rune,
-	iters, ubatches int,
+	iters, ubatches, parallel int,
 	lr float64,
 	seed int64,
 	checkpoint *model,
@@ -156,9 +179,9 @@ func train(
 	vocab := getVocab(slices.Concat(data, validation), mode)
 	m := checkpoint
 	if checkpoint == nil {
-		m = newModel(dModel, context, dAttn, attn, blocks, vocab)
+		m = newModel(dModel, context, dAttn, attn, mlp, blocks, vocab)
 	}
-	t := newTraining(m)
+	t := newTraining(m, parallel)
 	t.mode = mode
 	t.iters = iters
 	now := time.Now().UnixMilli()
@@ -179,5 +202,5 @@ func train(
 	adam(t, theta, iters, lr)
 	m.apply(theta)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
-	return t.model
+	return t.models[0]
 }

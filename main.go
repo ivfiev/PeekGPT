@@ -35,6 +35,8 @@ func main() {
 	n := flag.Int("n", 0, "n")
 	maxLen := flag.Int("max", 0, "max")
 	textmode := flag.Bool("text", false, "text generation mode")
+	par := flag.Int("par", 8, "parallel training")
+	mlp := flag.Int("mlp", 2, "MLP width")
 	flag.Parse()
 
 	switch *mode {
@@ -54,7 +56,7 @@ func main() {
 
 	case "train":
 		if *dattn == 0 {
-			*dattn = *dmodel
+			*dattn = *dmodel / *attn
 		}
 		var model *model
 		if *checkpoint {
@@ -63,9 +65,9 @@ func main() {
 		}
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
 		model = train(
-			*dmodel, *context, *dattn, *attn, *blocks,
+			*dmodel, *context, *dattn, *attn, *mlp, *blocks,
 			trainingSet, validationSet,
-			*iters, *ubatches, *lr,
+			*iters, *ubatches, *par, *lr,
 			*seed,
 			model,
 		)
@@ -102,7 +104,7 @@ func main() {
 	case "eval":
 		model := load(*modelpath)
 		validationSet, _ := readTrainingData(*datapath, *vsize, 0, *textmode)
-		tr := newTraining(model)
+		tr := newTraining(model, *par)
 		tr.validation = validationSet
 		loss := tr.validate(model)
 		fmt.Printf("Loss: %.12f\n", loss)
@@ -137,6 +139,7 @@ type stored struct {
 	Context int
 	DAttn   int
 	Attn    int
+	Mlp     int
 	Blocks  int
 	Vocab   []rune
 	Params  vector
@@ -146,8 +149,9 @@ func store(m *model, path string) {
 	stored := &stored{}
 	stored.DModel = m.dModel
 	stored.Context = m.context
-	stored.DAttn = m.blocks[0].dAttn
-	stored.Attn = m.blocks[0].attn
+	stored.DAttn = m.dAttn
+	stored.Attn = m.attn
+	stored.Mlp = m.mlp
 	stored.Blocks = len(m.blocks)
 	stored.Vocab = m.vocab
 	stored.Params = make(vector, m.size())
@@ -159,6 +163,7 @@ func store(m *model, path string) {
 	defer file.Close()
 	encoder := json.NewEncoder(file)
 	encoder.Encode(stored)
+	log.Printf("Stored %s\n", path)
 }
 
 func load(path string) *model {
@@ -170,7 +175,7 @@ func load(path string) *model {
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	decoder.Decode(stored)
-	model := newModel(stored.DModel, stored.Context, stored.DAttn, stored.Attn, stored.Blocks, stored.Vocab)
+	model := newModel(stored.DModel, stored.Context, stored.DAttn, stored.Attn, stored.Mlp, stored.Blocks, stored.Vocab)
 	model.apply(stored.Params)
 	return model
 }
@@ -237,7 +242,7 @@ func genKVdataset(vocabK, vocabV []rune, maxLen, n int, rng *rand.Rand) [][]rune
 	}
 	for range n {
 		kv := 1 + rng.Int()%maxLen
-		q := 1 // + rng.Int()%kv
+		q := 1 + rng.Int()%kv
 		ixs := randIxs(kv, len(vocabK))
 		dict := make([]rune, 2*kv)
 		query := make([]rune, q)
@@ -251,7 +256,7 @@ func genKVdataset(vocabK, vocabV []rune, maxLen, n int, rng *rand.Rand) [][]rune
 			query[i] = dict[2*ixs[i]]
 			answer[i] = dict[1+slices.Index(dict, query[i])]
 		}
-		dataset = append(dataset, []rune(fmt.Sprintf("%s%s|%s=%s", string(query), string(dict), strings.Repeat("?", len(query)), string(answer))))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s,%s|%s=%s", string(dict), string(query), strings.Repeat("?", len(query)), string(answer))))
 	}
 	return dataset
 }

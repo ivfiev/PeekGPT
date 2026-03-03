@@ -11,6 +11,9 @@ import (
 type model struct {
 	dModel  int
 	context int
+	dAttn   int
+	attn    int
+	mlp     int
 
 	vocab     []rune // vocabulary
 	tokens    matrix // token embeddings
@@ -132,11 +135,14 @@ type block struct {
 	dbeta0      vector
 }
 
-func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
+func newModel(dModel, ctx, dAttn, attn, mlp, blocks int, vocab []rune) *model {
 	dVocab := len(vocab)
 	m := model{
 		context: ctx,
 		dModel:  dModel,
+		dAttn:   dAttn,
+		attn:    attn,
+		mlp:     mlp,
 	}
 	m.tokens = makeMat(dVocab, dModel)
 	m.positions = makeMat(ctx, dModel)
@@ -144,7 +150,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 
 	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, ReLU)
+		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, mlp, ReLU)
 	}
 
 	m.unembed = makeMat(dModel, dVocab)
@@ -164,7 +170,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 	return &m
 }
 
-func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
+func newBlock(dModel, ctx, dAttn, attn, mlp int, activation func(float64) float64) *block {
 	b := block{
 		dModel:  dModel,
 		context: ctx,
@@ -192,10 +198,10 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.beta1 = make(vector, dModel)
 	b.XS2 = makeMat(ctx, dModel)
 
-	b.input = makeMat(dModel, 2*dModel)
-	b.bias0 = make(vector, 2*dModel)
+	b.input = makeMat(dModel, mlp*dModel)
+	b.bias0 = make(vector, mlp*dModel)
 	b.activation = activation
-	b.hidden = makeMat(2*dModel, dModel)
+	b.hidden = makeMat(mlp*dModel, dModel)
 	b.bias1 = make(vector, dModel)
 
 	b.Q = make([]matrix, attn)
@@ -216,18 +222,18 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.P = makeMat(ctx, dModel)
 	b.R0 = makeMat(ctx, dModel)
 	b.R1 = makeMat(ctx, dModel)
-	b.I = makeMat(ctx, 2*dModel)
-	b.A = makeMat(ctx, 2*dModel)
+	b.I = makeMat(ctx, mlp*dModel)
+	b.A = makeMat(ctx, mlp*dModel)
 	b.H = makeMat(ctx, dModel)
 
 	b.dR1 = makeMat(ctx, dModel)
 	b.dH = makeMat(ctx, dModel)
-	b.dhidden = makeMat(2*dModel, dModel)
+	b.dhidden = makeMat(mlp*dModel, dModel)
 	b.dbias1 = make(vector, dModel)
-	b.dA = makeMat(ctx, 2*dModel)
-	b.dI = makeMat(ctx, 2*dModel)
-	b.dinput = makeMat(dModel, 2*dModel)
-	b.dbias0 = make(vector, 2*dModel)
+	b.dA = makeMat(ctx, mlp*dModel)
+	b.dI = makeMat(ctx, mlp*dModel)
+	b.dinput = makeMat(dModel, mlp*dModel)
+	b.dbias0 = make(vector, mlp*dModel)
 
 	b.dR0 = makeMat(ctx, dModel)
 	b.dXS2 = makeMat(ctx, dModel)
@@ -354,6 +360,11 @@ func (b *block) size() int {
 		len(b.bias0) +
 		len(b.hidden.RawMatrix().Data) +
 		len(b.bias1)
+}
+
+func (m *model) clone() *model {
+	model := newModel(m.dModel, m.context, m.dAttn, m.attn, m.mlp, len(m.blocks), m.vocab)
+	return model
 }
 
 func (m *model) loadXs(prompt []rune) {

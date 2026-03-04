@@ -37,6 +37,7 @@ func main() {
 	textmode := flag.Bool("text", false, "text generation mode")
 	par := flag.Int("par", 8, "parallel training")
 	mlp := flag.Int("mlp", 2, "MLP width")
+	steps := flag.Int("steps", 100, "validation frequency every x iters")
 	flag.Parse()
 
 	switch *mode {
@@ -66,7 +67,7 @@ func main() {
 		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
 		model = train(
 			*dmodel, *context, *dattn, *attn, *mlp, *blocks,
-			trainingSet, validationSet,
+			trainingSet, validationSet, *steps,
 			*iters, *ubatches, *par, *lr,
 			*seed,
 			model,

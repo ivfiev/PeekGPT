@@ -24,8 +24,9 @@ type training struct {
 	training   [][]rune
 	validation [][]rune
 
-	iters    int
-	ubatches []int
+	iters     int
+	ubatches  []int
+	evalSteps int
 
 	rng *rand.Rand
 }
@@ -151,7 +152,7 @@ func (t *training) eval(theta, grad vector, iter int) {
 			threads = 0
 		}
 	}
-	if iter%100 == 0 || iter == t.iters {
+	if t.evalSteps > 0 && (iter%t.evalSteps == 0 || iter == t.iters) {
 		vLoss := t.validate(t.models[0])
 		fmt.Println("-")
 		fmt.Printf("Iteration %d\n", iter)
@@ -166,7 +167,7 @@ func (t *training) eval(theta, grad vector, iter int) {
 
 func train(
 	dModel, context, dAttn, attn, mlp, blocks int,
-	data, validation [][]rune,
+	data, validation [][]rune, evalSteps int,
 	iters, ubatches, parallel int,
 	lr float64,
 	seed int64,
@@ -184,6 +185,7 @@ func train(
 	t := newTraining(m, parallel)
 	t.mode = mode
 	t.iters = iters
+	t.evalSteps = evalSteps
 	now := time.Now().UnixMilli()
 	if !slices.Equal(vocab, m.vocab) {
 		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(m.vocab))

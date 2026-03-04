@@ -67,13 +67,23 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 	}
 }
 
-func TestIntegrationAdam(te *testing.T) {
+func assertValidation(model *model, mode tmode, targetLoss float64, data [][]rune, te *testing.T) {
+	tr := newTraining(model, 1)
+	tr.validation = data
+	tr.mode = mode
+	loss := tr.validate(model)
+	if loss != targetLoss {
+		te.Fatalf("validation loss\n%.60f\n!=\n%.60f", targetLoss, loss)
+	}
+}
+
+func TestIntegrationTask(te *testing.T) {
 	var seed int64 = 7359
 	rng := rand.New(rand.NewSource(seed))
-	m := train(16, 5, 4, 3, 2, 2,
-		genCopyDataset([]rune("123"), 2, 30, rng),
-		genCopyDataset([]rune("123"), 2, 10, rng),
-		60, 4, 8, 0.01, seed, nil)
+	data := genCopyDataset([]rune("1234"), 4, 500, rng)
+	m := train(16, 9, 8, 2, 2, 2,
+		data[:450], data[450:], 0,
+		150, 32, 8, 0.01, seed, nil)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := m.predict(ctx)
@@ -83,15 +93,35 @@ func TestIntegrationAdam(te *testing.T) {
 		}
 	}
 	assert("21")
-	assert("32")
-	assert("11")
-	assert("22")
-	assert("33")
+	assert("322")
+	assert("111")
+	assert("2211")
+	assert("3341")
 	assert("13")
 	assert("31")
 	assert("3")
 	assert("2")
-	assert("1")
+	const target = 0.026498012247249444484076263961469521746039390563964843750000
+	assertValidation(m, task, target, data, te)
+}
+
+func TestIntegrationTextgenRaceCond(te *testing.T) {
+	var seed int64 = 7359
+	data := []rune(`
+Humpty Dumpty sat on a wall.
+Humpty Dumpty had a great fall.
+All the king's horses and all the king's men
+Couldn't put Humpty together again.
+`)
+	mPar := train(16, 8, 8, 2, 2, 2,
+		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
+		133, 17, 13, 0.01, seed, nil)
+	mSeq := train(16, 8, 8, 2, 2, 2,
+		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
+		133, 17, 1, 0.01, seed, nil)
+	const target = 0.556376868876563013266434154502348974347114562988281250000000
+	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
+	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
 
 func TestPointLoss(te *testing.T) {
@@ -108,17 +138,17 @@ func TestPointLoss(te *testing.T) {
 	}
 	actual := t.pointLoss(m, []rune("bc|??=bc"))
 	expected := (p(3, 1) + p(4, 2)) / 2.0
-	if math.Abs(actual-expected) > 0.000000000001 {
+	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = t.pointLoss(m, []rune("cba|???=cba"))
 	expected = (p(4, 2) + p(5, 1) + p(6, 0)) / 3.0
-	if math.Abs(actual-expected) > 0.000000000001 {
+	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = t.pointLoss(m, []rune("a|?=a"))
 	expected = (p(2, 0)) / 1.0
-	if math.Abs(actual-expected) > 0.000000000001 {
+	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 }
@@ -546,6 +576,7 @@ func TestBackprop(te *testing.T) {
 	const eps = 1e-7
 	rng := rand.New(rand.NewSource(7357))
 	m := newModel(4, 3, 2, 2, 2, 3, []rune("abcde"))
+	println(m.size())
 	m.rand(rng)
 	for i := range m.dModel {
 		m.bias2[i] = -0.5 + rng.Float64()
@@ -597,6 +628,9 @@ func TestBackprop(te *testing.T) {
 			e := expected[i]
 			a := actual[i]
 			if math.Abs(e-a) > eps {
+				te.Errorf("%d: %.9f != %.9f", i, e, a)
+			}
+			if math.Abs(e-a)/max(1, math.Abs(e), math.Abs(a)) > eps {
 				te.Errorf("%d: %.9f != %.9f", i, e, a)
 			}
 		}

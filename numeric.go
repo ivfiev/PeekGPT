@@ -108,6 +108,12 @@ func printRow(A matrix, i int) {
 	printVec(d[i*c : i*c+c])
 }
 
+func zeroVec(v vector) {
+	for i := range len(v) {
+		v[i] = 0
+	}
+}
+
 func mulVec(v vector, k float64) {
 	for i := range len(v) {
 		v[i] *= k
@@ -245,7 +251,7 @@ func softSample(logits vector) int {
 func sgd(t *training, theta vector, iters int, lr float64) {
 	grad := make(vector, len(theta))
 	for i := range iters {
-		mulVec(grad, 0)
+		zeroVec(grad)
 		t.eval(theta, grad, i)
 		addVec2(theta, grad, -lr)
 	}
@@ -262,7 +268,7 @@ func adam(t *training, theta vector, iters int, lr float64) {
 	v := make(vector, len(theta))
 	b1t, b2t := 1.0, 1.0
 	for iter := range iters {
-		mulVec(grad, 0)
+		zeroVec(grad)
 		t.eval(theta, grad, 1+iter)
 		b1t *= b1
 		b2t *= b2

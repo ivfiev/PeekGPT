@@ -18,7 +18,6 @@ const (
 
 type training struct {
 	models []*model
-	grad   vector
 
 	mode       tmode
 	training   [][]rune
@@ -42,7 +41,6 @@ func newTraining(m *model, parallel int) *training {
 	}
 	return &training{
 		models: copies,
-		grad:   make(vector, m.size()),
 	}
 }
 
@@ -123,6 +121,7 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 
 func (t *training) eval(theta, grad vector, iter int) {
 	t.loadBatch()
+	ubInv := 1 / float64(len(t.ubatches))
 	tLoss := 0.0
 	for _, m := range t.models {
 		m.apply(theta)
@@ -139,15 +138,14 @@ func (t *training) eval(theta, grad vector, iter int) {
 				data = t.training[0][u : u+model.context+1] // 0..x, 1..y+1
 			}
 			// TODO tLoss race cond
-			tLoss += t.pointLoss(model, data) / float64(len(t.ubatches))
+			tLoss += t.pointLoss(model, data) * ubInv
 			model.backward()
 		})
 		threads++
 		if threads == len(t.models) || (i+1) == len(t.ubatches) {
 			wg.Wait()
 			for r := range threads {
-				t.models[r].grad(t.grad)
-				addVec2(grad, t.grad, 1/float64(len(t.ubatches)))
+				t.models[r].grad(grad, ubInv)
 			}
 			threads = 0
 		}

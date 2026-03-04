@@ -46,7 +46,18 @@ func main() {
 			log.Panicln("empty prompt")
 		}
 		model := load(*modelpath)
-		model.solve([]rune(*prompt))
+		ctx := []rune(*prompt)
+		ys := []int{}
+		if *textmode {
+			ys = append(ys, len(ctx)-1)
+		} else {
+			for i := range ctx {
+				if ctx[i] == '?' {
+					ys = append(ys, i)
+				}
+			}
+		}
+		model.solve(ctx, ys)
 
 	case "prompt":
 		if *prompt == "" {

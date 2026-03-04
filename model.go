@@ -435,19 +435,18 @@ func (m *model) generate(ctx []rune, n int) {
 }
 
 // TODO adapt for text-gen. maybe pass in a parameter instead of Index('|')
-func (m *model) solve(ctx []rune) {
+func (m *model) solve(ctx []rune, ys []int) {
 	m.loadXs(ctx)
 	m.forward()
 	d, _, c := unmat(m.L)
-	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
 	xs := []int{}
-	for ; i < len(ctx); i++ {
+	for _, y := range ys {
 		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(d[i*c : i*c+c])
+		_, j := rowMax(d[y*c : y*c+c])
 		prediction = append(prediction, m.vocab[j])
-		xs = append(xs, i)
+		xs = append(xs, y)
 	}
 	println()
 	m.printHeatmap(xs)
@@ -574,15 +573,27 @@ func (m *model) dump(theta vector) {
 	}
 }
 
-func (m *model) grad(theta vector) {
+func (m *model) grad(theta vector, k float64) {
 	M := 0
 	vec := func(v vector) {
-		copy(theta[M:M+len(v)], v)
+		if k == 0 {
+			copy(theta[M:M+len(v)], v)
+		} else {
+			for i := range v {
+				theta[M+i] += k * v[i]
+			}
+		}
 		M += len(v)
 	}
 	mat := func(m matrix) {
 		d, _, _ := unmat(m)
-		copy(theta[M:M+len(d)], d)
+		if k == 0 {
+			copy(theta[M:M+len(d)], d)
+		} else {
+			for i := range d {
+				theta[M+i] += k * d[i]
+			}
+		}
 		M += len(d)
 	}
 	mat(m.dtokens)

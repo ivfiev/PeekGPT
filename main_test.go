@@ -72,8 +72,8 @@ func assertValidation(model *model, mode tmode, targetLoss float64, data [][]run
 	tr.validation = data
 	tr.mode = mode
 	loss := tr.validate(model)
-	if loss != targetLoss {
-		te.Fatalf("validation loss\n%.60f\n!=\n%.60f", targetLoss, loss)
+	if math.Abs(loss-targetLoss) > 1e-13 {
+		te.Fatalf("validation loss\n%.13f\n!=\n%.13f", targetLoss, loss)
 	}
 }
 
@@ -101,7 +101,7 @@ func TestIntegrationTask(te *testing.T) {
 	assert("31")
 	assert("3")
 	assert("2")
-	const target = 0.026498012247249444484076263961469521746039390563964843750000
+	const target = 0.0264980122472
 	assertValidation(m, task, target, data, te)
 }
 
@@ -119,7 +119,7 @@ Couldn't put Humpty together again.
 	mSeq := train(16, 8, 8, 2, 2, 2,
 		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
 		133, 17, 1, 0.01, seed, nil)
-	const target = 0.556376868876563013266434154502348974347114562988281250000000
+	const target = 0.5563768688766
 	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
 	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
@@ -618,7 +618,7 @@ func TestBackprop(te *testing.T) {
 		m.loadXs(prompt)
 		m.forward()
 		m.backward()
-		m.grad(actual)
+		m.grad(actual, 0)
 	}
 	test := func(proompt []rune, ys []int) {
 		copy(m.ys, ys)

@@ -224,9 +224,9 @@ func layerNorm(L, hatL, X matrix, gamma, beta vector) {
 		}
 		o2 /= float64(cols)
 		for j := range cols {
-			index := i*cols + j
-			dhatL[index] = (dX[index] - u) / math.Sqrt(o2+0.00001)
-			dL[index] = dhatL[index]*gamma[j] + beta[j]
+			ij := i*cols + j
+			dhatL[ij] = (dX[ij] - u) / math.Sqrt(o2+0.00001)
+			dL[ij] = dhatL[ij]*gamma[j] + beta[j]
 		}
 	}
 }

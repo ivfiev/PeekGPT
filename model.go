@@ -435,7 +435,6 @@ func (m *model) generate(ctx []rune, n int) {
 	println()
 }
 
-// TODO adapt for text-gen. maybe pass in a parameter instead of Index('|')
 func (m *model) solve(ctx []rune, ys []int) {
 	m.loadXs(ctx)
 	m.forward()

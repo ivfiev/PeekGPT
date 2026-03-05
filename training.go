@@ -60,37 +60,44 @@ func getVocab(data [][]rune, mode tmode) []rune {
 }
 
 func (t *training) loadBatch() {
-	if t.mode == task {
+	switch t.mode {
+	case task:
 		for i := range t.ubatches {
 			ix := t.rng.Int() % len(t.training)
 			t.ubatches[i] = ix
 		}
-	} else {
+	case text:
 		for i := range t.ubatches {
 			ix := t.rng.Int() % (len(t.training[0]) - t.models[0].context - 1)
 			t.ubatches[i] = ix
 		}
+	default:
+		log.Panic("invalid tmode")
 	}
 }
 
 func (t *training) validate(m *model) float64 {
 	loss := 0.0
-	if t.mode == task {
+	switch t.mode {
+	case task:
 		for _, data := range t.validation {
 			loss += t.pointLoss(m, data)
 		}
 		loss /= float64(len(t.validation))
-	} else {
+	case text:
 		for i := range len(t.validation[0]) - m.context {
 			loss += t.pointLoss(m, t.validation[0][i:i+m.context+1])
 		}
 		loss /= float64(len(t.validation[0]) - m.context)
+	default:
+		log.Panic("invalid tmode")
 	}
 	return loss
 }
 
 func (t *training) pointLoss(m *model, data []rune) float64 {
-	if t.mode == task {
+	switch t.mode {
+	case task:
 		separator := slices.Index(data, '|')
 		target := slices.Index(data, '=')
 		if separator == -1 || target == -1 {
@@ -98,9 +105,11 @@ func (t *training) pointLoss(m *model, data []rune) float64 {
 		}
 		m.loadXs(data[:target])
 		t.loadYs(m, data, 1+separator, 1+target, len(data)-target-1)
-	} else {
+	case text:
 		m.loadXs(data[:len(data)-1])
 		t.loadYs(m, data, 0, 1, len(data)-1)
+	default:
+		log.Panic("invalid tmode")
 	}
 	m.forward()
 	return m.loss()
@@ -132,10 +141,13 @@ func (t *training) eval(theta, grad vector, iter int) {
 		model := t.models[threads]
 		wg.Go(func() {
 			var data []rune
-			if t.mode == task {
+			switch t.mode {
+			case task:
 				data = t.training[u]
-			} else {
+			case text:
 				data = t.training[0][u : u+model.context+1] // 0..x, 1..y+1
+			default:
+				log.Panic("invalid tmode")
 			}
 			// TODO tLoss race cond
 			tLoss += t.pointLoss(model, data) * ubInv

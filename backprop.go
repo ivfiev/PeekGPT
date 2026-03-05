@@ -165,15 +165,15 @@ func layerNormBackward(b *block, dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix
 		sumdhat := 0.0
 		sumdhat2 := 0.0
 		for j := range dModel {
-			index := i*dModel + j
-			dhatxs[index] = dxs[index] * gamma[j]
-			sumdhat += dhatxs[index]
-			sumdhat2 += dhatxs[index] * hatxs[index]
+			ij := i*dModel + j
+			dhatxs[ij] = dxs[ij] * gamma[j]
+			sumdhat += dhatxs[ij]
+			sumdhat2 += dhatxs[ij] * hatxs[ij]
 		}
 		for j := range dModel {
-			index := i*dModel + j
-			dx := (dhatxs[index] - sumdhat/float64(dModel) - hatxs[index]*sumdhat2/float64(dModel)) * o2
-			dldxs[index] += dx
+			ij := i*dModel + j
+			dx := (dhatxs[ij] - sumdhat/float64(dModel) - hatxs[ij]*sumdhat2/float64(dModel)) * o2
+			dldxs[ij] += dx
 		}
 	}
 }
@@ -186,13 +186,13 @@ func softmaxBackward(b *block, dQK, dS, S matrix) {
 	for i := range rows {
 		sum := 0.0
 		for j := range cols {
-			index := i*cols + j
-			sum += ds[index] * s[index]
+			ij := i*cols + j
+			sum += ds[ij] * s[ij]
 		}
 		for j := range cols {
-			index := i*cols + j
-			val := s[index] * (ds[index] - sum)
-			dqk[index] = val * scale
+			ij := i*cols + j
+			val := s[ij] * (ds[ij] - sum)
+			dqk[ij] = val * scale
 		}
 	}
 }

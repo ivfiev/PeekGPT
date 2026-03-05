@@ -178,7 +178,7 @@ func TestLayerNorm(te *testing.T) {
 	ys := makeMat(3, 4)
 	gamma := vector{1, 1.5, 2, 1}
 	beta := vector{1, -1, -1, 1}
-	layerNorm(ys, xs, gamma, beta)
+	layerNorm(ys, ys, xs, gamma, beta)
 	assertEq(ys, [][]float64{
 		{2, -2.5, -3, 2},
 		{1.697, -3.092, 1.325, 0.535},
@@ -254,7 +254,7 @@ func TestBlocksE2E(te *testing.T) {
 
 	assertEq(m.blocks[0].XS0, m.XS, "0.xs0", te)
 
-	layerNorm(mat34, m.blocks[0].XS0, m.blocks[0].gamma0, m.blocks[0].beta0)
+	layerNorm(mat34, mat34, m.blocks[0].XS0, m.blocks[0].gamma0, m.blocks[0].beta0)
 	assertEq(mat34, m.blocks[0].XS1, "0.xs1", te)
 
 	mulMat(mat32, m.blocks[0].XS1, m.blocks[0].queries[0])
@@ -300,7 +300,7 @@ func TestBlocksE2E(te *testing.T) {
 	assertEq(mat34, m.blocks[0].R0, "0.R1", te)
 
 	mat34.Zero()
-	layerNorm(mat34, m.blocks[0].R0, m.blocks[0].gamma1, m.blocks[0].beta1)
+	layerNorm(mat34, mat34, m.blocks[0].R0, m.blocks[0].gamma1, m.blocks[0].beta1)
 	assertEq(mat34, m.blocks[0].XS2, "0.xs2", te)
 
 	mulMat(mat38, m.blocks[0].XS2, m.blocks[0].input)

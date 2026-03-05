@@ -14,6 +14,13 @@ import (
 )
 
 func main() {
+	// f, err := os.Create("cpu.prof")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// pprof.StartCPUProfile(f)
+	// defer pprof.StopCPUProfile()
+
 	mode := flag.String("mode", "load", "train/solve/eval (loss)/gen (data)/prompt")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")

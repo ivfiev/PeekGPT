@@ -72,6 +72,9 @@ type block struct {
 	XS1 matrix
 	XS2 matrix
 
+	hatXS1 matrix // layernorm intermediaries
+	hatXS2 matrix // layernorm intermediaries
+
 	// attention values
 	Q  []matrix
 	K  []matrix
@@ -104,7 +107,6 @@ type block struct {
 
 	dR0         matrix
 	dXS2        matrix
-	hatXS2      matrix // remove?
 	dXS2ThatXS2 matrix
 	dhatXS2     matrix
 	dgamma1     vector
@@ -128,8 +130,7 @@ type block struct {
 	dXS1v    []matrix
 
 	dXS1        matrix
-	hatXS1      matrix // remove?
-	dhatXS1     matrix // remove?
+	dhatXS1     matrix
 	dXS1ThatXS1 matrix
 	dgamma0     vector
 	dbeta0      vector
@@ -297,7 +298,7 @@ func (m *model) forward() {
 
 func (b *block) forward() {
 	// attention
-	layerNorm(b.XS1, b.XS0, b.gamma0, b.beta0)
+	layerNorm(b.XS1, b.hatXS1, b.XS0, b.gamma0, b.beta0)
 	for i := range b.attn {
 		mulMat(b.Q[i], b.XS1, b.queries[i])
 		mulMat(b.K[i], b.XS1, b.keys[i])
@@ -312,7 +313,7 @@ func (b *block) forward() {
 	mulMat(b.P, b.CV, b.proj)
 	addMatM(b.R0, b.XS0, b.P)
 	// mlp
-	layerNorm(b.XS2, b.R0, b.gamma1, b.beta1)
+	layerNorm(b.XS2, b.hatXS2, b.R0, b.gamma1, b.beta1)
 	mulMat(b.I, b.XS2, b.input)
 	addMatV(b.I, b.bias0)
 	mapMat(b.A, b.I, b.activation)

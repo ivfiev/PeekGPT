@@ -11,6 +11,9 @@ import (
 type model struct {
 	dModel  int
 	context int
+	dAttn   int
+	attn    int
+	mlp     int
 
 	vocab     []rune // vocabulary
 	tokens    matrix // token embeddings
@@ -69,6 +72,9 @@ type block struct {
 	XS1 matrix
 	XS2 matrix
 
+	hatXS1 matrix // layernorm intermediaries
+	hatXS2 matrix // layernorm intermediaries
+
 	// attention values
 	Q  []matrix
 	K  []matrix
@@ -101,7 +107,6 @@ type block struct {
 
 	dR0         matrix
 	dXS2        matrix
-	hatXS2      matrix // remove?
 	dXS2ThatXS2 matrix
 	dhatXS2     matrix
 	dgamma1     vector
@@ -125,18 +130,20 @@ type block struct {
 	dXS1v    []matrix
 
 	dXS1        matrix
-	hatXS1      matrix // remove?
-	dhatXS1     matrix // remove?
+	dhatXS1     matrix
 	dXS1ThatXS1 matrix
 	dgamma0     vector
 	dbeta0      vector
 }
 
-func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
+func newModel(dModel, ctx, dAttn, attn, mlp, blocks int, vocab []rune) *model {
 	dVocab := len(vocab)
 	m := model{
 		context: ctx,
 		dModel:  dModel,
+		dAttn:   dAttn,
+		attn:    attn,
+		mlp:     mlp,
 	}
 	m.tokens = makeMat(dVocab, dModel)
 	m.positions = makeMat(ctx, dModel)
@@ -144,7 +151,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 
 	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, ReLU)
+		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, mlp, ReLU)
 	}
 
 	m.unembed = makeMat(dModel, dVocab)
@@ -164,7 +171,7 @@ func newModel(dModel, ctx, dAttn, attn, blocks int, vocab []rune) *model {
 	return &m
 }
 
-func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *block {
+func newBlock(dModel, ctx, dAttn, attn, mlp int, activation func(float64) float64) *block {
 	b := block{
 		dModel:  dModel,
 		context: ctx,
@@ -192,10 +199,10 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.beta1 = make(vector, dModel)
 	b.XS2 = makeMat(ctx, dModel)
 
-	b.input = makeMat(dModel, dModel)
-	b.bias0 = make(vector, dModel)
+	b.input = makeMat(dModel, mlp*dModel)
+	b.bias0 = make(vector, mlp*dModel)
 	b.activation = activation
-	b.hidden = makeMat(dModel, dModel)
+	b.hidden = makeMat(mlp*dModel, dModel)
 	b.bias1 = make(vector, dModel)
 
 	b.Q = make([]matrix, attn)
@@ -216,18 +223,18 @@ func newBlock(dModel, ctx, dAttn, attn int, activation func(float64) float64) *b
 	b.P = makeMat(ctx, dModel)
 	b.R0 = makeMat(ctx, dModel)
 	b.R1 = makeMat(ctx, dModel)
-	b.I = makeMat(ctx, dModel)
-	b.A = makeMat(ctx, dModel)
+	b.I = makeMat(ctx, mlp*dModel)
+	b.A = makeMat(ctx, mlp*dModel)
 	b.H = makeMat(ctx, dModel)
 
 	b.dR1 = makeMat(ctx, dModel)
 	b.dH = makeMat(ctx, dModel)
-	b.dhidden = makeMat(dModel, dModel)
+	b.dhidden = makeMat(mlp*dModel, dModel)
 	b.dbias1 = make(vector, dModel)
-	b.dA = makeMat(ctx, dModel)
-	b.dI = makeMat(ctx, dModel)
-	b.dinput = makeMat(dModel, dModel)
-	b.dbias0 = make(vector, dModel)
+	b.dA = makeMat(ctx, mlp*dModel)
+	b.dI = makeMat(ctx, mlp*dModel)
+	b.dinput = makeMat(dModel, mlp*dModel)
+	b.dbias0 = make(vector, mlp*dModel)
 
 	b.dR0 = makeMat(ctx, dModel)
 	b.dXS2 = makeMat(ctx, dModel)
@@ -284,13 +291,14 @@ func (m *model) forward() {
 		b.forward()
 		xs = b.R1
 	}
+	// TODO layerNorm?
 	mulMat(m.L, xs, m.unembed)
 	addMatV(m.L, m.bias2)
 }
 
 func (b *block) forward() {
 	// attention
-	layerNorm(b.XS1, b.XS0, b.gamma0, b.beta0)
+	layerNorm(b.XS1, b.hatXS1, b.XS0, b.gamma0, b.beta0)
 	for i := range b.attn {
 		mulMat(b.Q[i], b.XS1, b.queries[i])
 		mulMat(b.K[i], b.XS1, b.keys[i])
@@ -305,7 +313,7 @@ func (b *block) forward() {
 	mulMat(b.P, b.CV, b.proj)
 	addMatM(b.R0, b.XS0, b.P)
 	// mlp
-	layerNorm(b.XS2, b.R0, b.gamma1, b.beta1)
+	layerNorm(b.XS2, b.hatXS2, b.R0, b.gamma1, b.beta1)
 	mulMat(b.I, b.XS2, b.input)
 	addMatV(b.I, b.bias0)
 	mapMat(b.A, b.I, b.activation)
@@ -354,6 +362,11 @@ func (b *block) size() int {
 		len(b.bias0) +
 		len(b.hidden.RawMatrix().Data) +
 		len(b.bias1)
+}
+
+func (m *model) clone() *model {
+	model := newModel(m.dModel, m.context, m.dAttn, m.attn, m.mlp, len(m.blocks), m.vocab)
+	return model
 }
 
 func (m *model) loadXs(prompt []rune) {
@@ -422,19 +435,18 @@ func (m *model) generate(ctx []rune, n int) {
 	println()
 }
 
-func (m *model) solve(ctx []rune) {
+func (m *model) solve(ctx []rune, ys []int) {
 	m.loadXs(ctx)
 	m.forward()
 	d, _, c := unmat(m.L)
-	i := 1 + slices.Index(ctx, '|')
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
 	xs := []int{}
-	for ; i < len(ctx); i++ {
+	for _, y := range ys {
 		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(d[i*c : i*c+c])
+		_, j := rowMax(d[y*c : y*c+c])
 		prediction = append(prediction, m.vocab[j])
-		xs = append(xs, i)
+		xs = append(xs, y)
 	}
 	println()
 	m.printHeatmap(xs)
@@ -521,7 +533,7 @@ func (m *model) apply(theta vector) {
 	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
+		log.Panic("apply: mismatch between len(theta) and model size")
 	}
 }
 
@@ -557,19 +569,31 @@ func (m *model) dump(theta vector) {
 	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
+		log.Panic("dump: mismatch between len(theta) and model size")
 	}
 }
 
-func (m *model) grad(theta vector) {
+func (m *model) grad(theta vector, k float64) {
 	M := 0
 	vec := func(v vector) {
-		copy(theta[M:M+len(v)], v)
+		if k == 0 {
+			copy(theta[M:M+len(v)], v)
+		} else {
+			for i := range v {
+				theta[M+i] += k * v[i]
+			}
+		}
 		M += len(v)
 	}
 	mat := func(m matrix) {
 		d, _, _ := unmat(m)
-		copy(theta[M:M+len(d)], d)
+		if k == 0 {
+			copy(theta[M:M+len(d)], d)
+		} else {
+			for i := range d {
+				theta[M+i] += k * d[i]
+			}
+		}
 		M += len(d)
 	}
 	mat(m.dtokens)
@@ -593,6 +617,6 @@ func (m *model) grad(theta vector) {
 	mat(m.dunembed)
 	vec(m.dbias2)
 	if M != len(theta) {
-		log.Fatal("mismatch between len(theta) and model size")
+		log.Panic("grad: mismatch between len(theta) and model size")
 	}
 }

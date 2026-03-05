@@ -45,7 +45,7 @@ func mulMatK(a matrix, k float64) {
 func addMatV(A matrix, v vector) {
 	d, r, c := unmat(A)
 	if c != len(v) {
-		log.Panicf("addMatV: bad dimensions, %d + %d\n", r, len(v))
+		log.Panicf("addMatV: bad dimensions, %d + %d\n", c, len(v))
 	}
 	for i := range r {
 		for j := range c {
@@ -59,9 +59,11 @@ func addMatM(C, A, B matrix) {
 }
 
 func mapMat(C, A matrix, f func(float64) float64) {
-	C.Apply(func(i, j int, v float64) float64 {
-		return f(v)
-	}, A)
+	cd, _, _ := unmat(C)
+	ad, _, _ := unmat(A)
+	for i := range ad {
+		cd[i] = f(ad[i])
+	}
 }
 
 func catMat(B matrix, As []matrix) {
@@ -108,6 +110,12 @@ func printRow(A matrix, i int) {
 	printVec(d[i*c : i*c+c])
 }
 
+func zeroVec(v vector) {
+	for i := range len(v) {
+		v[i] = 0
+	}
+}
+
 func mulVec(v vector, k float64) {
 	for i := range len(v) {
 		v[i] *= k
@@ -133,10 +141,10 @@ func addVec3(w, v, u vector, k float64) {
 }
 
 func sumCols(v vector, A matrix) {
-	a, _, c := unmat(A)
+	a, r, c := unmat(A)
 	for j := range c {
 		sum := 0.0
-		for i := 0; i < len(a)/c; i++ {
+		for i := range r {
 			sum += a[i*c+j]
 		}
 		v[j] = sum
@@ -190,10 +198,10 @@ func softmaxT(S, A matrix) {
 	}
 }
 
-func layerNorm(L, X matrix, gamma, beta vector) {
-	L.Zero()
+func layerNorm(L, hatL, X matrix, gamma, beta vector) {
 	dX, rX, cX := unmat(X)
 	dL, rL, cL := unmat(L)
+	dhatL, _, _ := unmat(hatL)
 	rows := rX
 	cols := cX
 	if rX != rL || cX != cL || cX != len(gamma) || cols != len(beta) {
@@ -204,38 +212,30 @@ func layerNorm(L, X matrix, gamma, beta vector) {
 		u := 0.0
 		o2 := 0.0
 		for j := range cols {
-			u += dX[i*cX+j]
+			u += dX[i*cols+j]
 		}
 		if u == 0 {
 			continue
 		}
 		u /= float64(cols)
 		for j := range cols {
-			x := dX[i*cX+j]
+			x := dX[i*cols+j]
 			o2 += (x - u) * (x - u)
 		}
 		o2 /= float64(cols)
 		for j := range cols {
-			dL[i*cL+j] = (dX[i*cX+j] - u) / math.Sqrt(o2+0.00001)
-			dL[i*cL+j] *= gamma[j]
-			dL[i*cL+j] += beta[j]
+			ij := i*cols + j
+			dhatL[ij] = (dX[ij] - u) / math.Sqrt(o2+0.00001)
+			dL[ij] = dhatL[ij]*gamma[j] + beta[j]
 		}
 	}
 }
 
 func ReLU(x float64) float64 {
-	return max(0, x)
-}
-
-func rademacher(v vector, rng *rand.Rand) vector {
-	for i := range len(v) {
-		if rng.Float32() < 0.5 {
-			v[i] = -1
-		} else {
-			v[i] = 1
-		}
+	if x > 0 {
+		return x
 	}
-	return v
+	return 0
 }
 
 func softSample(logits vector) int {
@@ -256,7 +256,7 @@ func softSample(logits vector) int {
 func sgd(t *training, theta vector, iters int, lr float64) {
 	grad := make(vector, len(theta))
 	for i := range iters {
-		mulVec(grad, 0)
+		zeroVec(grad)
 		t.eval(theta, grad, i)
 		addVec2(theta, grad, -lr)
 	}
@@ -273,8 +273,8 @@ func adam(t *training, theta vector, iters int, lr float64) {
 	v := make(vector, len(theta))
 	b1t, b2t := 1.0, 1.0
 	for iter := range iters {
-		mulVec(grad, 0)
-		t.eval(theta, grad, iter)
+		zeroVec(grad)
+		t.eval(theta, grad, 1+iter)
 		b1t *= b1
 		b2t *= b2
 		for i := range grad {

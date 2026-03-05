@@ -5,61 +5,50 @@ import (
 	"log"
 	"math/rand"
 	"slices"
+	"sync"
 	"time"
 )
 
-type training struct {
-	model *model
-	grad  vector
+type tmode int
 
+const (
+	task tmode = iota
+	text
+)
+
+type training struct {
+	models []*model
+
+	mode       tmode
 	training   [][]rune
 	validation [][]rune
 
-	iters    int
-	ubatches []int
+	iters     int
+	ubatches  []int
+	evalSteps int
 
 	rng *rand.Rand
 }
 
-func newTraining(m *model) *training {
-	models := make([]*model, 64)
-	models[0] = m
+func newTraining(m *model, parallel int) *training {
+	copies := make([]*model, parallel)
+	for i := range copies {
+		if i == 0 {
+			copies[i] = m
+		} else {
+			copies[i] = m.clone()
+		}
+	}
 	return &training{
-		model: m,
-		grad:  make(vector, m.size()),
+		models: copies,
 	}
 }
 
-func (t *training) train(
-	data, validation [][]rune,
-	iters, ubatches int,
-	lr float64,
-	seed int64,
-) *model {
-	m := t.model
-	vocab := getVocab(data)
-	if !slices.Equal(vocab, m.vocab) {
-		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(m.vocab))
-	}
-	t.training = data
-	t.validation = validation
-	m.vocab = vocab
-	theta := make(vector, m.size())
-	rng := rand.New(rand.NewSource(seed))
-	m.rand(rng)
-	m.dump(theta)
-	t.ubatches = make([]int, ubatches)
-	t.rng = rng
-	adam(t, theta, iters, lr)
-	m.apply(theta)
-	return m
-}
-
-func getVocab(data [][]rune) []rune {
-	vocab := make([]rune, 0, len(data))
-	for _, task := range data {
-		for _, tok := range task {
-			if tok == '=' {
+func getVocab(data [][]rune, mode tmode) []rune {
+	vocab := make([]rune, 0)
+	for _, str := range data {
+		for _, tok := range str {
+			if tok == '=' && mode == task {
 				continue
 			}
 			if slices.Index(vocab, tok) == -1 {
@@ -71,28 +60,57 @@ func getVocab(data [][]rune) []rune {
 }
 
 func (t *training) loadBatch() {
-	for i := range t.ubatches {
-		ix := t.rng.Int() % len(t.training)
-		t.ubatches[i] = ix
+	switch t.mode {
+	case task:
+		for i := range t.ubatches {
+			ix := t.rng.Int() % len(t.training)
+			t.ubatches[i] = ix
+		}
+	case text:
+		for i := range t.ubatches {
+			ix := t.rng.Int() % (len(t.training[0]) - t.models[0].context - 1)
+			t.ubatches[i] = ix
+		}
+	default:
+		log.Panic("invalid tmode")
 	}
 }
 
 func (t *training) validate(m *model) float64 {
 	loss := 0.0
-	for _, data := range t.validation {
-		loss += t.pointLoss(m, data)
+	switch t.mode {
+	case task:
+		for _, data := range t.validation {
+			loss += t.pointLoss(m, data)
+		}
+		loss /= float64(len(t.validation))
+	case text:
+		for i := range len(t.validation[0]) - m.context {
+			loss += t.pointLoss(m, t.validation[0][i:i+m.context+1])
+		}
+		loss /= float64(len(t.validation[0]) - m.context)
+	default:
+		log.Panic("invalid tmode")
 	}
-	return loss / float64(len(t.validation))
+	return loss
 }
 
 func (t *training) pointLoss(m *model, data []rune) float64 {
-	separator := slices.Index(data, '|')
-	target := slices.Index(data, '=')
-	if separator == -1 || target == -1 {
-		log.Fatalf("bad pipe/eq indexes")
+	switch t.mode {
+	case task:
+		separator := slices.Index(data, '|')
+		target := slices.Index(data, '=')
+		if separator == -1 || target == -1 {
+			log.Fatalf("bad pipe/eq indexes")
+		}
+		m.loadXs(data[:target])
+		t.loadYs(m, data, 1+separator, 1+target, len(data)-target-1)
+	case text:
+		m.loadXs(data[:len(data)-1])
+		t.loadYs(m, data, 0, 1, len(data)-1)
+	default:
+		log.Panic("invalid tmode")
 	}
-	m.loadXs(data[:target])
-	t.loadYs(m, data, 1+separator, 1+target, len(data)-target-1)
 	m.forward()
 	return m.loss()
 }
@@ -110,35 +128,91 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 	}
 }
 
-func (t *training) eval(theta, grad vector, i int) {
+func (t *training) eval(theta, grad vector, iter int) {
 	t.loadBatch()
-	m := t.model
-	m.apply(theta)
-	for _, i := range t.ubatches {
-		t.pointLoss(m, t.training[i])
-		m.backward()
-		m.grad(t.grad)
-		addVec2(grad, t.grad, 1/float64(len(t.ubatches)))
+	ubInv := 1 / float64(len(t.ubatches))
+	tLoss := 0.0
+	for _, m := range t.models {
+		m.apply(theta)
 	}
-	if i%100 == 0 {
-		loss := t.validate(m)
-		fmt.Printf("\r              ")
-		fmt.Printf("\r%.3f  %d%%", loss, int(float64(i)/float64(t.iters)*100))
+	var wg sync.WaitGroup
+	threads := 0
+	for i, u := range t.ubatches {
+		model := t.models[threads]
+		wg.Go(func() {
+			var data []rune
+			switch t.mode {
+			case task:
+				data = t.training[u]
+			case text:
+				data = t.training[0][u : u+model.context+1] // 0..x, 1..y+1
+			default:
+				log.Panic("invalid tmode")
+			}
+			// TODO tLoss race cond
+			tLoss += t.pointLoss(model, data) * ubInv
+			model.backward()
+		})
+		threads++
+		if threads == len(t.models) || (i+1) == len(t.ubatches) {
+			wg.Wait()
+			for r := range threads {
+				t.models[r].grad(grad, ubInv)
+			}
+			threads = 0
+		}
+	}
+	if t.evalSteps > 0 && (iter%t.evalSteps == 0 || iter == t.iters) {
+		vLoss := t.validate(t.models[0])
+		fmt.Println("-")
+		fmt.Printf("Iteration %d\n", iter)
+		fmt.Printf("Training loss: %.3f\n", tLoss)
+		fmt.Printf("Validation loss: %.3f\n", vLoss)
+		fmt.Printf("%d%% done\n", int(float64(iter)/float64(t.iters)*100))
+		if iter == t.iters {
+			fmt.Println("-")
+		}
 	}
 }
 
 func train(
-	dModel, context, dAttn, attn, blocks int,
-	data, validation [][]rune,
-	iters, ubatches int,
+	dModel, context, dAttn, attn, mlp, blocks int,
+	data, validation [][]rune, evalSteps int,
+	iters, ubatches, parallel int,
 	lr float64,
 	seed int64,
+	checkpoint *model,
 ) *model {
-	m := newModel(dModel, context, dAttn, attn, blocks, getVocab(data))
-	t := newTraining(m)
+	mode := task
+	if len(data) == 1 {
+		mode = text
+	}
+	vocab := getVocab(slices.Concat(data, validation), mode)
+	m := checkpoint
+	if checkpoint == nil {
+		m = newModel(dModel, context, dAttn, attn, mlp, blocks, vocab)
+	}
+	t := newTraining(m, parallel)
+	t.mode = mode
 	t.iters = iters
+	t.evalSteps = evalSteps
 	now := time.Now().UnixMilli()
-	t.train(data, validation, iters, ubatches, lr, seed)
+	if !slices.Equal(vocab, m.vocab) {
+		log.Panicf("Incompatible vocabs: %s != %s\n", string(vocab), string(m.vocab))
+	}
+	t.training = data
+	t.validation = validation
+	m.vocab = vocab
+	theta := make(vector, m.size())
+	rng := rand.New(rand.NewSource(seed))
+	if checkpoint == nil {
+		m.rand(rng)
+	}
+	t.rng = rng
+	m.dump(theta)
+	t.ubatches = make([]int, ubatches)
+	adam(t, theta, iters, lr)
+	m.apply(theta)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
-	return t.model
+	return t.models[0]
 }

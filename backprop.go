@@ -27,21 +27,11 @@ func (b *block) backward() {
 	mulTmat(b.dhidden, b.A, b.dH)
 	sumCols(b.dbias1, b.dH)
 	mulMatT(b.dA, b.dH, b.hidden)
-	b.dI.Apply(func(i, j int, v float64) float64 {
-		if v > 0 {
-			return b.dA.At(i, j)
-		}
-		return 0
-	}, b.I)
+	dactivation(b.dI, b.dA, b.I)
 	mulTmat(b.dinput, b.XS2, b.dI)
 	sumCols(b.dbias0, b.dI)
 	mulMatT(b.dXS2, b.dI, b.input)
-	b.hatXS2.Apply(func(i, j int, v float64) float64 {
-		return (v - b.beta1[j]) / b.gamma1[j]
-	}, b.XS2)
-	b.dXS2ThatXS2.Apply(func(i, j int, v float64) float64 {
-		return b.dXS2.At(i, j) * b.hatXS2.At(i, j)
-	}, b.dXS2ThatXS2)
+	hats(b.dXS2ThatXS2, b.hatXS2, b.dXS2)
 	layerNormBackward(b, b.dR0, b.R0, b.dXS2, b.hatXS2, b.dhatXS2, b.dXS2ThatXS2, b.gamma1, b.dgamma1, b.dbeta1)
 
 	b.dP.Copy(b.dR0)
@@ -71,13 +61,30 @@ func (b *block) backward() {
 		// dz/dx = g'(f(x))*f'(x) + h'(f(x))*f'(x)
 		// dz/dy = g'(y) + h'(y)
 	}
-	b.hatXS1.Apply(func(i, j int, v float64) float64 {
-		return (v - b.beta0[j]) / b.gamma0[j]
-	}, b.XS1)
-	b.dXS1ThatXS1.Apply(func(i, j int, v float64) float64 {
-		return b.dXS1.At(i, j) * b.hatXS1.At(i, j)
-	}, b.dXS1ThatXS1)
+	hats(b.dXS1ThatXS1, b.hatXS1, b.dXS1)
 	layerNormBackward(b, b.dXS0, b.XS0, b.dXS1, b.hatXS1, b.dhatXS1, b.dXS1ThatXS1, b.gamma0, b.dgamma0, b.dbeta0)
+}
+
+func dactivation(dI, dA, I matrix) {
+	ddi, _, _ := unmat(dI)
+	dda, _, _ := unmat(dA)
+	di, _, _ := unmat(I)
+	for i := range ddi {
+		if di[i] > 0 {
+			ddi[i] = dda[i]
+		} else {
+			ddi[i] = 0
+		}
+	}
+}
+
+func hats(dXSThatXS, hatXS, dXS matrix) {
+	dxshatxs, _, _ := unmat(dXSThatXS)
+	dxs, _, _ := unmat(dXS)
+	dhatxs, _, _ := unmat(hatXS)
+	for i := range dxshatxs {
+		dxshatxs[i] = dxs[i] * dhatxs[i]
+	}
 }
 
 func dLogits(m *model) {
@@ -93,7 +100,7 @@ func dLogits(m *model) {
 		row := d[i*cl : i*cl+cl]
 		rowMax, _ := rowMax(row)
 		sum := rowSum(row, rowMax)
-		for c := range row {
+		for c := range cl {
 			g[i*cg+c] = math.Exp(d[i*cl+c]-rowMax) / sum
 			if m.ys[i] == c {
 				g[i*cg+c] -= 1.0
@@ -106,16 +113,15 @@ func dLogits(m *model) {
 }
 
 func dSVs(b *block) {
-	_, rows, cols := unmat(b.dCV)
+	ddcv, rows, cols := unmat(b.dCV)
 	for r := range rows {
 		for c := range cols {
-			b.dSV[c/b.dAttn].Set(r, c%b.dAttn, b.dCV.At(r, c))
+			b.dSV[c/b.dAttn].Set(r, c%b.dAttn, ddcv[r*cols+c])
 		}
 	}
 }
 
 func dUnembed(m *model) {
-	m.dunembed.Zero()
 	block := m.blocks[len(m.blocks)-1]
 	mulTmat(m.dunembed, block.R1, m.dL)
 	sumCols(m.dbias2, m.dL)
@@ -136,46 +142,57 @@ func dEmbed(m *model) {
 func layerNormBackward(b *block, dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix, gamma, dgamma, dbeta vector) {
 	sumCols(dgamma, dXSThatXS)
 	sumCols(dbeta, dXS)
+	xs, _, _ := unmat(XS)
+	dxs, _, _ := unmat(dXS)
+	hatxs, _, _ := unmat(hatXS)
+	dhatxs, _, _ := unmat(dhatXS)
+	dldxs, _, _ := unmat(dLdXS)
 	// dL/dXS
 	const eps = 0.00001
 	ctx, dModel := b.context, b.dModel
 	for i := range ctx {
 		u := 0.0
 		for j := range dModel {
-			u += XS.At(i, j)
+			u += xs[i*dModel+j]
 		}
 		u /= float64(dModel)
 		o2 := 0.0
 		for j := range dModel {
-			diff := XS.At(i, j) - u
+			diff := xs[i*dModel+j] - u
 			o2 += diff * diff
 		}
 		o2 = 1.0 / math.Sqrt(o2/float64(dModel)+eps)
 		sumdhat := 0.0
 		sumdhat2 := 0.0
 		for j := range dModel {
-			dhatXS.Set(i, j, dXS.At(i, j)*gamma[j])
-			sumdhat += dhatXS.At(i, j)
-			sumdhat2 += dhatXS.At(i, j) * hatXS.At(i, j)
+			ij := i*dModel + j
+			dhatxs[ij] = dxs[ij] * gamma[j]
+			sumdhat += dhatxs[ij]
+			sumdhat2 += dhatxs[ij] * hatxs[ij]
 		}
 		for j := range dModel {
-			dx := (dhatXS.At(i, j) - sumdhat/float64(dModel) - hatXS.At(i, j)*sumdhat2/float64(dModel)) * o2
-			dLdXS.Set(i, j, dx+dLdXS.At(i, j))
+			ij := i*dModel + j
+			dx := (dhatxs[ij] - sumdhat/float64(dModel) - hatxs[ij]*sumdhat2/float64(dModel)) * o2
+			dldxs[ij] += dx
 		}
 	}
 }
 
 func softmaxBackward(b *block, dQK, dS, S matrix) {
 	scale := 1.0 / math.Sqrt(float64(b.dAttn))
-	_, rows, cols := unmat(S)
+	s, rows, cols := unmat(S)
+	ds, _, _ := unmat(dS)
+	dqk, _, _ := unmat(dQK)
 	for i := range rows {
 		sum := 0.0
 		for j := range cols {
-			sum += dS.At(i, j) * S.At(i, j)
+			ij := i*cols + j
+			sum += ds[ij] * s[ij]
 		}
 		for j := range cols {
-			val := S.At(i, j) * (dS.At(i, j) - sum)
-			dQK.Set(i, j, val*scale)
+			ij := i*cols + j
+			val := s[ij] * (ds[ij] - sum)
+			dqk[ij] = val * scale
 		}
 	}
 }

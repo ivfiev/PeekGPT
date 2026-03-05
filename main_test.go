@@ -67,13 +67,23 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 	}
 }
 
-func TestIntegrationAdam(te *testing.T) {
+func assertValidation(model *model, mode tmode, targetLoss float64, data [][]rune, te *testing.T) {
+	tr := newTraining(model, 1)
+	tr.validation = data
+	tr.mode = mode
+	loss := tr.validate(model)
+	if math.Abs(loss-targetLoss) > 1e-13 {
+		te.Fatalf("validation loss\n%.13f\n!=\n%.13f", targetLoss, loss)
+	}
+}
+
+func TestIntegrationTask(te *testing.T) {
 	var seed int64 = 7359
 	rng := rand.New(rand.NewSource(seed))
-	m := train(16, 5, 4, 3, 2,
-		genCopyDataset([]rune("123"), 2, 30, rng),
-		genCopyDataset([]rune("123"), 2, 10, rng),
-		109, 4, 0.01, seed)
+	data := genCopyDataset([]rune("1234"), 4, 500, rng)
+	m := train(16, 9, 8, 2, 2, 2,
+		data[:450], data[450:], 0,
+		150, 32, 8, 0.01, seed, nil)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := m.predict(ctx)
@@ -83,21 +93,41 @@ func TestIntegrationAdam(te *testing.T) {
 		}
 	}
 	assert("21")
-	assert("32")
-	assert("11")
-	assert("22")
-	assert("33")
+	assert("322")
+	assert("111")
+	assert("2211")
+	assert("3341")
 	assert("13")
 	assert("31")
 	assert("3")
 	assert("2")
-	assert("1")
+	const target = 0.0264980122472
+	assertValidation(m, task, target, data, te)
+}
+
+func TestIntegrationTextgenRaceCond(te *testing.T) {
+	var seed int64 = 7359
+	data := []rune(`
+Humpty Dumpty sat on a wall.
+Humpty Dumpty had a great fall.
+All the king's horses and all the king's men
+Couldn't put Humpty together again.
+`)
+	mPar := train(16, 8, 8, 2, 2, 2,
+		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
+		133, 17, 13, 0.01, seed, nil)
+	mSeq := train(16, 8, 8, 2, 2, 2,
+		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
+		133, 17, 1, 0.01, seed, nil)
+	const target = 0.5563768688766
+	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
+	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
 
 func TestPointLoss(te *testing.T) {
-	m := newModel(4, 7, 4, 3, 2, []rune("abc|?"))
+	m := newModel(4, 7, 4, 3, 2, 2, []rune("abc|?"))
 	m.rand(rand.New(rand.NewSource(7357)))
-	t := newTraining(m)
+	t := newTraining(m, 8)
 	p := func(r, c int) float64 {
 		d, _, cols := unmat(m.L)
 		sum := 0.0
@@ -108,25 +138,25 @@ func TestPointLoss(te *testing.T) {
 	}
 	actual := t.pointLoss(m, []rune("bc|??=bc"))
 	expected := (p(3, 1) + p(4, 2)) / 2.0
-	if math.Abs(actual-expected) > 0.000000000001 {
+	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = t.pointLoss(m, []rune("cba|???=cba"))
 	expected = (p(4, 2) + p(5, 1) + p(6, 0)) / 3.0
-	if math.Abs(actual-expected) > 0.000000000001 {
+	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = t.pointLoss(m, []rune("a|?=a"))
 	expected = (p(2, 0)) / 1.0
-	if math.Abs(actual-expected) > 0.000000000001 {
+	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 }
 
 func TestLoadYs(te *testing.T) {
-	m := newModel(4, 9, 4, 3, 2, []rune("012345|?"))
+	m := newModel(4, 9, 4, 3, 2, 2, []rune("012345|?"))
 	m.rand(rand.New(rand.NewSource(7357)))
-	t := newTraining(m)
+	t := newTraining(m, 8)
 	t.pointLoss(m, []rune("4012345|?=4"))
 	expected := []int{-1, -1, -1, -1, -1, -1, -1, -1, 4}
 	if len(m.ys) != len(expected) {
@@ -148,7 +178,7 @@ func TestLayerNorm(te *testing.T) {
 	ys := makeMat(3, 4)
 	gamma := vector{1, 1.5, 2, 1}
 	beta := vector{1, -1, -1, 1}
-	layerNorm(ys, xs, gamma, beta)
+	layerNorm(ys, ys, xs, gamma, beta)
 	assertEq(ys, [][]float64{
 		{2, -2.5, -3, 2},
 		{1.697, -3.092, 1.325, 0.535},
@@ -174,7 +204,7 @@ func TestSoftmax(te *testing.T) {
 }
 
 func TestBlockLayerNorm(te *testing.T) {
-	b := newBlock(4, 3, 4, 1, ReLU)
+	b := newBlock(4, 3, 4, 2, 1, ReLU)
 	b.XS0 = testMat([][]float64{
 		{1, 0, 0, 0},
 		{0, 0, 0, 1},
@@ -206,7 +236,7 @@ func TestAddMatV(te *testing.T) {
 }
 
 func TestBlocksE2E(te *testing.T) {
-	m := newModel(4, 3, 2, 2, 2, []rune("abc"))
+	m := newModel(4, 3, 2, 2, 2, 2, []rune("abc"))
 	m.rand(rand.New(rand.NewSource(7357)))
 	m.XS = testMat([][]float64{
 		{0.2, -0.34, 1.2, -0.5},
@@ -214,16 +244,17 @@ func TestBlocksE2E(te *testing.T) {
 		{2, 1, 0, -1},
 	})
 	m.bias2 = vector{1, 2, 3}
-	m.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4}
+	m.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4, 0.1, 0.2, -0.3, -0.4}
 	m.blocks[0].bias1 = vector{-0.1, -0.2, 0.3, 0.4}
 	mat34 := makeMat(3, 4)
+	mat38 := makeMat(3, 8)
 	mat33 := makeMat(3, 3)
 	mat32 := makeMat(3, 2)
 	m.forward()
 
 	assertEq(m.blocks[0].XS0, m.XS, "0.xs0", te)
 
-	layerNorm(mat34, m.blocks[0].XS0, m.blocks[0].gamma0, m.blocks[0].beta0)
+	layerNorm(mat34, mat34, m.blocks[0].XS0, m.blocks[0].gamma0, m.blocks[0].beta0)
 	assertEq(mat34, m.blocks[0].XS1, "0.xs1", te)
 
 	mulMat(mat32, m.blocks[0].XS1, m.blocks[0].queries[0])
@@ -269,15 +300,15 @@ func TestBlocksE2E(te *testing.T) {
 	assertEq(mat34, m.blocks[0].R0, "0.R1", te)
 
 	mat34.Zero()
-	layerNorm(mat34, m.blocks[0].R0, m.blocks[0].gamma1, m.blocks[0].beta1)
+	layerNorm(mat34, mat34, m.blocks[0].R0, m.blocks[0].gamma1, m.blocks[0].beta1)
 	assertEq(mat34, m.blocks[0].XS2, "0.xs2", te)
 
-	mulMat(mat34, m.blocks[0].XS2, m.blocks[0].input)
-	addMatV(mat34, m.blocks[0].bias0)
-	assertEq(mat34, m.blocks[0].I, "0.I", te)
+	mulMat(mat38, m.blocks[0].XS2, m.blocks[0].input)
+	addMatV(mat38, m.blocks[0].bias0)
+	assertEq(mat38, m.blocks[0].I, "0.I", te)
 
-	mapMat(mat34, m.blocks[0].I, ReLU)
-	assertEq(mat34, m.blocks[0].A, "0.A", te)
+	mapMat(mat38, m.blocks[0].I, ReLU)
+	assertEq(mat38, m.blocks[0].A, "0.A", te)
 
 	mulMat(mat34, m.blocks[0].A, m.blocks[0].hidden)
 	addMatV(mat34, m.blocks[0].bias1)
@@ -301,7 +332,7 @@ func TestBlocksE2E(te *testing.T) {
 }
 
 func TestHeatmaps(te *testing.T) {
-	m := newModel(4, 3, 4, 1, 1, []rune("abc"))
+	m := newModel(4, 3, 4, 1, 1, 1, []rune("abc"))
 	m.unembed = testMat([][]float64{
 		{1, 1, 1},
 		{1, 1, -1},
@@ -357,7 +388,7 @@ func TestHeatmaps(te *testing.T) {
 }
 
 func TestLoss(te *testing.T) {
-	m := newModel(4, 4, 4, 1, 1, []rune("abcd"))
+	m := newModel(4, 4, 4, 1, 1, 1, []rune("abcd"))
 	m.L = testMat([][]float64{
 		{1, 2, 3, -9},
 		{2, 1.6, 1, 0.1},
@@ -388,7 +419,7 @@ func TestLoss(te *testing.T) {
 }
 
 func TestLoadXs(te *testing.T) {
-	m := newModel(4, 3, 4, 1, 1, []rune("abc"))
+	m := newModel(4, 3, 4, 1, 1, 1, []rune("abc"))
 	m.tokens = testMat([][]float64{
 		{1, 0, 0, 0},
 		{0, 1, 0, 0},
@@ -435,7 +466,7 @@ func TestMatrixInit(te *testing.T) {
 			te.Fatalf("bad input %v", X)
 		}
 	}
-	m := newModel(4, 3, 4, 1, 2, []rune("abc"))
+	m := newModel(4, 3, 4, 1, 2, 2, []rune("abc"))
 	assert(m.tokens, func(f float64) bool { return f == 0 })
 	assert(m.XS, func(f float64) bool { return f == 0 })
 
@@ -498,10 +529,14 @@ func TestMatrixInit(te *testing.T) {
 	theta2 := make(vector, m.size())
 	m.rand(rand.New(rand.NewSource(7737)))
 	m.bias2 = vector{1, 1, 1}
-	m.blocks[0].bias0 = vector{2, 2, 2, 2}
+	m.blocks[0].bias0 = vector{2, 2, 2, 2, 2, 2, 2, 2}
 	m.blocks[0].bias1 = vector{3, 3, 3, 3}
 	m.blocks[0].beta0 = vector{4, 4, 4, 4}
 	m.blocks[0].beta1 = vector{5, 5, 5, 5}
+	m.blocks[1].bias0 = vector{20, 20, 20, 20, 20, 20, 20, 20}
+	m.blocks[1].bias1 = vector{30, 30, 30, 30}
+	m.blocks[1].beta0 = vector{40, 40, 40, 40}
+	m.blocks[1].beta1 = vector{50, 50, 50, 50}
 	m.dump(theta1)
 	m.apply(theta1)
 	m.dump(theta2)
@@ -540,7 +575,8 @@ func TestMatrixCat(te *testing.T) {
 func TestBackprop(te *testing.T) {
 	const eps = 1e-7
 	rng := rand.New(rand.NewSource(7357))
-	m := newModel(4, 3, 2, 2, 3, []rune("abcde"))
+	m := newModel(4, 3, 2, 2, 2, 3, []rune("abcde"))
+	println(m.size())
 	m.rand(rng)
 	for i := range m.dModel {
 		m.bias2[i] = -0.5 + rng.Float64()
@@ -582,7 +618,7 @@ func TestBackprop(te *testing.T) {
 		m.loadXs(prompt)
 		m.forward()
 		m.backward()
-		m.grad(actual)
+		m.grad(actual, 0)
 	}
 	test := func(proompt []rune, ys []int) {
 		copy(m.ys, ys)
@@ -592,6 +628,9 @@ func TestBackprop(te *testing.T) {
 			e := expected[i]
 			a := actual[i]
 			if math.Abs(e-a) > eps {
+				te.Errorf("%d: %.9f != %.9f", i, e, a)
+			}
+			if math.Abs(e-a)/max(1, math.Abs(e), math.Abs(a)) > eps {
 				te.Errorf("%d: %.9f != %.9f", i, e, a)
 			}
 		}

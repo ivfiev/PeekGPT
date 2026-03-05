@@ -14,9 +14,17 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "load", "train/load/eval/gen")
+	// f, err := os.Create("cpu.prof")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// pprof.StartCPUProfile(f)
+	// defer pprof.StopCPUProfile()
+
+	mode := flag.String("mode", "load", "train/solve/eval (loss)/gen (data)/prompt")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")
+	checkpoint := flag.Bool("checkpoint", false, "continue training existing model")
 	prompt := flag.String("prompt", "", "prompt")
 	tsize := flag.Int("t", 0, "size of the training set")
 	vsize := flag.Int("v", 0, "size of the validation set")
@@ -33,27 +41,57 @@ func main() {
 	vocab := flag.String("vocab", "", "vocab")
 	n := flag.Int("n", 0, "n")
 	maxLen := flag.Int("max", 0, "max")
+	textmode := flag.Bool("text", false, "text generation mode")
+	par := flag.Int("par", 8, "parallel training")
+	mlp := flag.Int("mlp", 2, "MLP width")
+	steps := flag.Int("steps", 100, "validation frequency every x iters")
 	flag.Parse()
 
 	switch *mode {
-	case "load":
+	case "solve":
 		if *prompt == "" {
 			log.Panicln("empty prompt")
 		}
 		model := load(*modelpath)
-		model.solve([]rune(*prompt))
+		ctx := []rune(*prompt)
+		ys := []int{}
+		if *textmode {
+			ys = append(ys, len(ctx)-1)
+		} else {
+			for i := range ctx {
+				if ctx[i] == '?' {
+					ys = append(ys, i)
+				}
+			}
+		}
+		model.solve(ctx, ys)
+
+	case "prompt":
+		if *prompt == "" {
+			log.Panicln("empty prompt")
+		}
+		model := load(*modelpath)
+		model.generate([]rune(*prompt), *n)
+
 	case "train":
 		if *dattn == 0 {
-			*dattn = *dmodel
+			*dattn = *dmodel / *attn
 		}
-		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize)
-		model := train(
-			*dmodel, *context, *dattn, *attn, *blocks,
-			trainingSet, validationSet,
-			*iters, *ubatches, *lr,
+		var model *model
+		if *checkpoint {
+			model = load(*modelpath)
+			log.Printf("Loaded checkpoint [%s]\n", *modelpath)
+		}
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
+		model = train(
+			*dmodel, *context, *dattn, *attn, *mlp, *blocks,
+			trainingSet, validationSet, *steps,
+			*iters, *ubatches, *par, *lr,
 			*seed,
+			model,
 		)
 		store(model, *modelpath)
+
 	case "gen":
 		if len(*vocab) == 0 {
 			log.Fatal("empty vocab")
@@ -81,30 +119,38 @@ func main() {
 		default:
 			log.Fatalf("unknown task %s", *task)
 		}
+
 	case "eval":
 		model := load(*modelpath)
-		validationSet, _ := readTrainingData(*datapath, *vsize, 0)
-		tr := newTraining(model)
+		validationSet, _ := readTrainingData(*datapath, *vsize, 0, *textmode)
+		tr := newTraining(model, *par)
 		tr.validation = validationSet
 		loss := tr.validate(model)
 		fmt.Printf("Loss: %.12f\n", loss)
 		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
+
 	default:
 		log.Fatalf("unknown mode %s", *mode)
 	}
 }
 
-func readTrainingData(path string, t, v int) ([][]rune, [][]rune) {
-	data := make([][]rune, 0)
+func readTrainingData(path string, t, v int, textmode bool) ([][]rune, [][]rune) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		log.Panic(err)
 	}
-	words := strings.SplitSeq(string(bytes), "\n")
-	for word := range words {
-		data = append(data, []rune(strings.TrimSpace(word)))
+	if textmode {
+		runes := []rune(string(bytes))
+		trainingSet, validationSet := [][]rune{runes[v:]}, [][]rune{runes[:v]}
+		return trainingSet, validationSet
+	} else {
+		data := make([][]rune, 0)
+		words := strings.SplitSeq(string(bytes), "\n")
+		for word := range words {
+			data = append(data, []rune(strings.TrimSpace(word)))
+		}
+		return data[:t], data[t : t+v]
 	}
-	return data[:t], data[t : t+v]
 }
 
 type stored struct {
@@ -112,6 +158,7 @@ type stored struct {
 	Context int
 	DAttn   int
 	Attn    int
+	Mlp     int
 	Blocks  int
 	Vocab   []rune
 	Params  vector
@@ -121,8 +168,9 @@ func store(m *model, path string) {
 	stored := &stored{}
 	stored.DModel = m.dModel
 	stored.Context = m.context
-	stored.DAttn = m.blocks[0].dAttn
-	stored.Attn = m.blocks[0].attn
+	stored.DAttn = m.dAttn
+	stored.Attn = m.attn
+	stored.Mlp = m.mlp
 	stored.Blocks = len(m.blocks)
 	stored.Vocab = m.vocab
 	stored.Params = make(vector, m.size())
@@ -134,6 +182,7 @@ func store(m *model, path string) {
 	defer file.Close()
 	encoder := json.NewEncoder(file)
 	encoder.Encode(stored)
+	log.Printf("Stored %s\n", path)
 }
 
 func load(path string) *model {
@@ -145,7 +194,7 @@ func load(path string) *model {
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	decoder.Decode(stored)
-	model := newModel(stored.DModel, stored.Context, stored.DAttn, stored.Attn, stored.Blocks, stored.Vocab)
+	model := newModel(stored.DModel, stored.Context, stored.DAttn, stored.Attn, stored.Mlp, stored.Blocks, stored.Vocab)
 	model.apply(stored.Params)
 	return model
 }
@@ -212,7 +261,7 @@ func genKVdataset(vocabK, vocabV []rune, maxLen, n int, rng *rand.Rand) [][]rune
 	}
 	for range n {
 		kv := 1 + rng.Int()%maxLen
-		q := 1 // + rng.Int()%kv
+		q := 1 + rng.Int()%kv
 		ixs := randIxs(kv, len(vocabK))
 		dict := make([]rune, 2*kv)
 		query := make([]rune, q)
@@ -226,7 +275,7 @@ func genKVdataset(vocabK, vocabV []rune, maxLen, n int, rng *rand.Rand) [][]rune
 			query[i] = dict[2*ixs[i]]
 			answer[i] = dict[1+slices.Index(dict, query[i])]
 		}
-		dataset = append(dataset, []rune(fmt.Sprintf("%s%s|%s=%s", string(query), string(dict), strings.Repeat("?", len(query)), string(answer))))
+		dataset = append(dataset, []rune(fmt.Sprintf("%s,%s|%s=%s", string(dict), string(query), strings.Repeat("?", len(query)), string(answer))))
 	}
 	return dataset
 }

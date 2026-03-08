@@ -101,7 +101,7 @@ func TestIntegrationTask(te *testing.T) {
 	assert("31")
 	assert("3")
 	assert("2")
-	const target = 0.0264980122472
+	const target = 0.0433835692528
 	assertValidation(m, task, target, data, te)
 }
 
@@ -119,7 +119,7 @@ Couldn't put Humpty together again.
 	mSeq := train(16, 8, 8, 2, 2, 2,
 		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
 		133, 17, 1, 0.01, seed, nil)
-	const target = 0.5563768688766
+	const target = 0.5660024758504
 	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
 	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
@@ -243,6 +243,8 @@ func TestBlocksE2E(te *testing.T) {
 		{-0.6, 0.1, 0.2, 0.6},
 		{2, 1, 0, -1},
 	})
+	m.gamma2 = vector{1.1, 1.1, 1.2, 1.1}
+	m.beta2 = vector{0.1, 0.1, 0.2, 0.1}
 	m.bias2 = vector{1, 2, 3}
 	m.blocks[0].bias0 = vector{0.1, 0.2, -0.3, -0.4, 0.1, 0.2, -0.3, -0.4}
 	m.blocks[0].bias1 = vector{-0.1, -0.2, 0.3, 0.4}
@@ -319,7 +321,8 @@ func TestBlocksE2E(te *testing.T) {
 
 	assertEq(m.blocks[1].XS0, m.blocks[0].R1, "1.xs0", te)
 
-	mulMat(mat33, m.blocks[1].R1, m.unembed)
+	layerNorm(mat34, mat34, m.blocks[1].R1, m.gamma2, m.beta2)
+	mulMat(mat33, mat34, m.unembed)
 	addMatV(mat33, m.bias2)
 	assertEq(m.L, mat33, "t.L", te)
 
@@ -486,9 +489,11 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.beta1, func(f float64) bool { return f == 0 })
 		assert(b.input, func(f float64) bool { return f != 0 })
 		assert(b.bias0, func(f float64) bool { return f == 0 })
-		assert(b.hidden, func(f float64) bool { return f != 0 })
+		assert(b.hidden, func(f float64) bool { return f == 0 })
 		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
+	assert(m.gamma2, func(f float64) bool { return f == 1 })
+	assert(m.beta2, func(f float64) bool { return f == 0 })
 	assert(m.unembed, func(f float64) bool { return f != 0 })
 	assert(m.bias2, func(f float64) bool { return f == 0 })
 
@@ -515,6 +520,8 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.hidden, func(f float64) bool { return f == 7357 })
 		assert(b.bias1, func(f float64) bool { return f == 7357 })
 	}
+	assert(m.gamma2, func(f float64) bool { return f == 7357 })
+	assert(m.beta2, func(f float64) bool { return f == 7357 })
 	assert(m.unembed, func(f float64) bool { return f == 7357 })
 	assert(m.bias2, func(f float64) bool { return f == 7357 })
 
@@ -528,6 +535,8 @@ func TestMatrixInit(te *testing.T) {
 	theta1 := make(vector, m.size())
 	theta2 := make(vector, m.size())
 	m.rand(rand.New(rand.NewSource(7737)))
+	m.gamma2 = vector{1.2, 1.4, 1.6, 1.8}
+	m.beta2 = vector{0.21, 0.31, 0.41, 0.51}
 	m.bias2 = vector{1, 1, 1}
 	m.blocks[0].bias0 = vector{2, 2, 2, 2, 2, 2, 2, 2}
 	m.blocks[0].bias1 = vector{3, 3, 3, 3}
@@ -579,6 +588,7 @@ func TestBackprop(te *testing.T) {
 	println(m.size())
 	m.rand(rng)
 	for i := range m.dModel {
+		m.gamma2[i] = 0.88 + rng.Float64()
 		m.bias2[i] = -0.5 + rng.Float64()
 	}
 	for _, b := range m.blocks {

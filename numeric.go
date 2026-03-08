@@ -253,7 +253,7 @@ func softSample(logits vector) int {
 	return -1
 }
 
-func sgd(t *training, theta vector, iters int, lr float64) {
+func sgd(t *trainer, theta vector, iters int, lr float64) {
 	grad := make(vector, len(theta))
 	for i := range iters {
 		zeroVec(grad)
@@ -262,7 +262,7 @@ func sgd(t *training, theta vector, iters int, lr float64) {
 	}
 }
 
-func adam(t *training, theta vector, iters int, lr float64) {
+func adam(t *trainer, theta vector, iters int, lr float64) {
 	const (
 		b1  = 0.9
 		b2  = 0.999

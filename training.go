@@ -16,7 +16,7 @@ const (
 	text
 )
 
-type training struct {
+type trainer struct {
 	models []*model
 
 	mode       tmode
@@ -30,7 +30,7 @@ type training struct {
 	rng *rand.Rand
 }
 
-func newTraining(m *model, parallel int) *training {
+func newTrainer(m *model, parallel int) *trainer {
 	copies := make([]*model, parallel)
 	for i := range copies {
 		if i == 0 {
@@ -39,7 +39,7 @@ func newTraining(m *model, parallel int) *training {
 			copies[i] = m.clone()
 		}
 	}
-	return &training{
+	return &trainer{
 		models: copies,
 	}
 }
@@ -59,7 +59,7 @@ func getVocab(data [][]rune, mode tmode) []rune {
 	return vocab
 }
 
-func (t *training) loadBatch() {
+func (t *trainer) loadBatch() {
 	switch t.mode {
 	case task:
 		for i := range t.ubatches {
@@ -76,7 +76,7 @@ func (t *training) loadBatch() {
 	}
 }
 
-func (t *training) validate(m *model) float64 {
+func (t *trainer) validate(m *model) float64 {
 	loss := 0.0
 	switch t.mode {
 	case task:
@@ -95,7 +95,7 @@ func (t *training) validate(m *model) float64 {
 	return loss
 }
 
-func (t *training) pointLoss(m *model, data []rune) float64 {
+func (t *trainer) pointLoss(m *model, data []rune) float64 {
 	switch t.mode {
 	case task:
 		separator := slices.Index(data, '|')
@@ -115,7 +115,7 @@ func (t *training) pointLoss(m *model, data []rune) float64 {
 	return m.loss()
 }
 
-func (t *training) loadYs(m *model, data []rune, x, y, k int) {
+func (t *trainer) loadYs(m *model, data []rune, x, y, k int) {
 	for i := range m.ys {
 		m.ys[i] = -1
 	}
@@ -128,7 +128,7 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 	}
 }
 
-func (t *training) eval(theta, grad vector, iter int) {
+func (t *trainer) eval(theta, grad vector, iter int) {
 	t.loadBatch()
 	ubInv := 1 / float64(len(t.ubatches))
 	tLoss := 0.0
@@ -192,7 +192,7 @@ func train(
 	if checkpoint == nil {
 		m = newModel(dModel, context, dAttn, attn, mlp, blocks, vocab)
 	}
-	t := newTraining(m, parallel)
+	t := newTrainer(m, parallel)
 	t.mode = mode
 	t.iters = iters
 	t.evalSteps = evalSteps

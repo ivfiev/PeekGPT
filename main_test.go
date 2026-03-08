@@ -68,7 +68,7 @@ func assertEq(actual matrix, expected any, err string, te *testing.T) {
 }
 
 func assertValidation(model *model, mode tmode, targetLoss float64, data [][]rune, te *testing.T) {
-	tr := newTraining(model, 1)
+	tr := newTrainer(model, 1)
 	tr.validation = data
 	tr.mode = mode
 	loss := tr.validate(model)
@@ -127,7 +127,7 @@ Couldn't put Humpty together again.
 func TestPointLoss(te *testing.T) {
 	m := newModel(4, 7, 4, 3, 2, 2, []rune("abc|?"))
 	m.rand(rand.New(rand.NewSource(7357)))
-	t := newTraining(m, 8)
+	t := newTrainer(m, 8)
 	p := func(r, c int) float64 {
 		d, _, cols := unmat(m.L)
 		sum := 0.0
@@ -156,7 +156,7 @@ func TestPointLoss(te *testing.T) {
 func TestLoadYs(te *testing.T) {
 	m := newModel(4, 9, 4, 3, 2, 2, []rune("012345|?"))
 	m.rand(rand.New(rand.NewSource(7357)))
-	t := newTraining(m, 8)
+	t := newTrainer(m, 8)
 	t.pointLoss(m, []rune("4012345|?=4"))
 	expected := []int{-1, -1, -1, -1, -1, -1, -1, -1, 4}
 	if len(m.ys) != len(expected) {

@@ -171,7 +171,7 @@ func rowSum(row vector, rowMax float64) float64 {
 	return sum
 }
 
-func softmaxT(S, A matrix) {
+func softmax(S, A matrix, triangle bool) {
 	dA, rA, cA := unmat(A)
 	dS, rS, cS := unmat(S)
 	if rS != rA || cS != cA {
@@ -179,20 +179,23 @@ func softmaxT(S, A matrix) {
 	}
 	S.Zero()
 	for i := range rA {
-		triangle := i + 1
-		rowA := dA[i*cA : i*cA+triangle]
-		rowS := dS[i*cS : i*cS+triangle]
+		end := cA
+		if triangle {
+			end = i + 1
+		}
+		rowA := dA[i*cA : i*cA+end]
+		rowS := dS[i*cS : i*cS+end]
 		rowMax, _ := rowMax(rowA)
 		if rowMax == 0 {
 			continue
 		}
 		var sum float64
-		for j := range triangle {
+		for j := range end {
 			f := math.Exp(rowA[j] - rowMax)
 			rowS[j] = f
 			sum += f
 		}
-		for j := range triangle {
+		for j := range end {
 			rowS[j] /= sum
 		}
 	}
@@ -238,18 +241,16 @@ func ReLU(x float64) float64 {
 	return 0
 }
 
-func softSample(logits vector) int {
-	rm, _ := rowMax(logits)
-	sum := rowSum(logits, rm)
+func sample(probs vector) int {
 	var running float64 = 0
 	r := rand.Float64()
-	for i := range logits {
-		running += math.Exp(logits[i]-rm) / sum
+	for i := range probs {
+		running += probs[i]
 		if r < running {
 			return i
 		}
 	}
-	log.Fatal("failed to softsample")
+	log.Fatal("failed to sample")
 	return -1
 }
 

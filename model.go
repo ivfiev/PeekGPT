@@ -34,8 +34,8 @@ type model struct {
 	unembed matrix
 	bias2   vector
 
-	// logits
-	L matrix
+	L matrix // logits
+	S matrix // final output probs
 
 	// derivatives
 	dunembed    matrix
@@ -170,6 +170,7 @@ func newModel(dModel, ctx, dAttn, attn, mlp, blocks int, vocab []rune) *model {
 	m.bias2 = make(vector, dVocab)
 	m.XS3 = makeMat(ctx, dModel)
 	m.L = makeMat(ctx, dVocab)
+	m.S = makeMat(ctx, dVocab)
 
 	m.ys = make([]int, ctx)
 	m.vocab = vocab
@@ -314,7 +315,8 @@ func (m *model) forward() {
 	}
 	layerNorm(m.XS3, m.hatXS3, xs, m.gamma2, m.beta2)
 	mulMat(m.L, m.XS3, m.unembed)
-	addMatV(m.L, m.bias2) // TODO final softmax probs
+	addMatV(m.L, m.bias2)
+	softmax(m.S, m.L, false)
 }
 
 func (b *block) forward() {
@@ -327,7 +329,7 @@ func (b *block) forward() {
 		mulMatT(b.QK[i], b.Q[i], b.K[i])
 		d := 1 / math.Sqrt(float64(b.dAttn))
 		mulMatK(b.QK[i], d)
-		softmaxT(b.S[i], b.QK[i])
+		softmax(b.S[i], b.QK[i], true)
 		mulMat(b.SV[i], b.S[i], b.V[i])
 	}
 	catMat(b.CV, b.SV)
@@ -346,16 +348,14 @@ func (b *block) forward() {
 func (m *model) loss() float64 {
 	loss := 0.0
 	count := 0
-	d, r, c := unmat(m.L)
+	s, r, c := unmat(m.S)
 	for i := range r {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*c : i*c+c]
-		rowMax, _ := rowMax(row)
-		sum := rowSum(row, rowMax)
-		loss += -d[i*c+m.ys[i]] + rowMax + math.Log(sum)
+		p := s[i*c+m.ys[i]]
+		loss += -math.Log(p)
 	}
 	return loss / float64(count)
 }
@@ -368,8 +368,8 @@ func (m *model) size() int {
 	return blocks +
 		len(m.tokens.RawMatrix().Data) +
 		len(m.positions.RawMatrix().Data) +
-		len(m.unembed.RawMatrix().Data) +
-		len(m.bias2) + len(m.gamma2) + len(m.beta2)
+		len(m.gamma2) + len(m.beta2) +
+		len(m.unembed.RawMatrix().Data) + len(m.bias2)
 }
 
 func (b *block) size() int {
@@ -427,28 +427,25 @@ func (b *block) loadXs(xs matrix) {
 func (m *model) predict(ctx []rune) ([]rune, vector) {
 	m.loadXs(ctx)
 	m.forward()
-	d, _, c := unmat(m.L)
+	s, _, c := unmat(m.S)
 	nexts := make([]rune, len(ctx))
 	probs := make(vector, len(ctx))
 	for tokIx := range len(ctx) {
-		rm, i := rowMax(d[c*tokIx : c*tokIx+c])
-		sum := rowSum(d[tokIx*c:tokIx*c+c], rm)
-		prob := math.Exp(d[tokIx*c+i]-rm) / sum
+		_, i := rowMax(s[c*tokIx : c*tokIx+c])
 		nexts[tokIx] = m.vocab[i]
-		probs[tokIx] = prob
+		probs[tokIx] = s[tokIx*c+i]
 	}
 	return nexts, probs
 }
 
 func (m *model) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
-	d, _, c := unmat(m.L)
+	d, _, c := unmat(m.S)
 	for range n {
 		m.loadXs(ctx)
 		m.forward()
 		tokIx := len(ctx) - 1
-		// printVec(t.L[tokIx])
-		i := softSample(d[tokIx*c : tokIx*c+c])
+		i := sample(d[tokIx*c : tokIx*c+c])
 		fmt.Printf("%c", m.vocab[i])
 		ctx = append(ctx, m.vocab[i])
 		ctx = ctx[max(0, len(ctx)-m.context):]
@@ -487,8 +484,8 @@ func (m *model) rand(rng *rand.Rand) {
 		}
 	}
 	std := 1 / math.Sqrt(float64(m.dModel))
-	mat(m.tokens, 0.5)
-	mat(m.positions, 0.5)
+	mat(m.tokens, math.Sqrt(0.5))
+	mat(m.positions, math.Sqrt(0.5))
 	for _, b := range m.blocks {
 		for i := range b.gamma0 {
 			b.gamma0[i] = 1
@@ -503,7 +500,7 @@ func (m *model) rand(rng *rand.Rand) {
 		}
 		mat(b.proj, std)
 		mat(b.input, std)
-		mat(b.hidden, 0)
+		mat(b.hidden, 0) // yolo
 		for i := range b.bias0 {
 			b.bias0[i] = 0
 		}

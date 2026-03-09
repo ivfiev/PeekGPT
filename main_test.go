@@ -101,7 +101,7 @@ func TestIntegrationTask(te *testing.T) {
 	assert("31")
 	assert("3")
 	assert("2")
-	const target = 0.0433835692528
+	const target = 0.0011941290520
 	assertValidation(m, task, target, data, te)
 }
 
@@ -119,9 +119,33 @@ Couldn't put Humpty together again.
 	mSeq := train(16, 8, 8, 2, 2, 2,
 		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
 		133, 17, 1, 0.01, seed, nil)
-	const target = 0.5660024758504
+	const target = 0.6264098015485
 	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
 	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
+}
+
+func TestAllParametersActuallyTrain(te *testing.T) {
+	var seed int64 = 7357
+	data := []rune(`
+Humpty Dumpty sat on a wall.
+Humpty Dumpty had a great fall.
+All the king's horses and all the king's men
+Couldn't put Humpty together again.
+`)
+	m1 := newModel(8, 8, 8, 2, 2, 2, getVocab([][]rune{data}, text))
+	m1.rand(rand.New(rand.NewSource(seed)))
+	initial := make(vector, m1.size())
+	m1.dump(initial)
+	m2 := train(8, 8, 8, 2, 2, 2,
+		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
+		37, 16, 8, 0.01, seed, m1)
+	trained := make(vector, m2.size())
+	m2.dump(trained)
+	for i := range m1.size() {
+		if math.Abs(initial[i]-trained[i]) < 0.000001 {
+			te.Errorf("%d: %.12f != %.12f\n", i, initial[i], trained[i])
+		}
+	}
 }
 
 func TestPointLoss(te *testing.T) {
@@ -186,7 +210,7 @@ func TestLayerNorm(te *testing.T) {
 	}, "LayerNorm", te)
 }
 
-func TestSoftmax(te *testing.T) {
+func TestSoftmaxT(te *testing.T) {
 	xs := testMat([][]float64{
 		{1, 1, 1, 1},
 		{1002, 1004, -7, 3},
@@ -194,11 +218,28 @@ func TestSoftmax(te *testing.T) {
 		{4, 2, -5, -1},
 	})
 	ys := makeMat(4, 4)
-	softmaxT(ys, xs)
+	softmax(ys, xs, true)
 	assertEq(ys, [][]float64{
 		{1, 0, 0, 0},
 		{0.119, 0.881, 0, 0},
 		{0.007, 0.991, 0.002, 0},
+		{0.876, 0.118, 0, 0.006},
+	}, "Softmax", te)
+}
+
+func TestSoftmax(te *testing.T) {
+	xs := testMat([][]float64{
+		{1, 1, 1, 1},
+		{1002, 1004, -7, 1002},
+		{-4, 1, -5, 2},
+		{4, 2, -5, -1},
+	})
+	ys := makeMat(4, 4)
+	softmax(ys, xs, false)
+	assertEq(ys, [][]float64{
+		{0.25, 0.25, 0.25, 0.25},
+		{0.107, 0.786, 0, 0.107},
+		{0.002, 0.268, 0.001, 0.730},
 		{0.876, 0.118, 0, 0.006},
 	}, "Softmax", te)
 }
@@ -281,9 +322,9 @@ func TestBlocksE2E(te *testing.T) {
 	mulMatK(mat33, 1/math.Sqrt(2))
 	assertEq(mat33, m.blocks[0].QK[1], "0.QK.1", te)
 
-	softmaxT(mat33, m.blocks[0].QK[0])
+	softmax(mat33, m.blocks[0].QK[0], true)
 	assertEq(mat33, m.blocks[0].S[0], "0.S.0", te)
-	softmaxT(mat33, m.blocks[0].QK[1])
+	softmax(mat33, m.blocks[0].QK[1], true)
 	assertEq(mat33, m.blocks[0].S[1], "0.S.1", te)
 
 	mulMat(mat32, m.blocks[0].S[0], m.blocks[0].V[0])
@@ -325,6 +366,9 @@ func TestBlocksE2E(te *testing.T) {
 	mulMat(mat33, mat34, m.unembed)
 	addMatV(mat33, m.bias2)
 	assertEq(m.L, mat33, "t.L", te)
+
+	softmax(mat33, m.L, false)
+	assertEq(mat33, m.S, "t.S", te)
 
 	d, _, _ := unmat(m.L)
 	for _, x := range d {
@@ -390,8 +434,8 @@ func TestHeatmaps(te *testing.T) {
 	}, "heatmaps", te)
 }
 
-func TestLoss(te *testing.T) {
-	m := newModel(4, 4, 4, 1, 1, 1, []rune("abcd"))
+func TestLossLogits(te *testing.T) {
+	m := newModel(4, 5, 4, 1, 1, 1, []rune("abcd"))
 	m.L = testMat([][]float64{
 		{1, 2, 3, -9},
 		{2, 1.6, 1, 0.1},
@@ -399,6 +443,7 @@ func TestLoss(te *testing.T) {
 		{-2, 100, -1},
 		{-3.14, 7.77, 0},
 	})
+	softmax(m.S, m.L, false)
 	p := func(r, c int) float64 {
 		d, _, cols := unmat(m.L)
 		sum := 0.0
@@ -406,6 +451,32 @@ func TestLoss(te *testing.T) {
 			sum += math.Exp(d[r*cols+i])
 		}
 		return -math.Log(math.Exp(float64(d[r*cols+c])) / sum)
+	}
+	m.ys = []int{1, 0, 2, 0, 2}
+	loss := m.loss()
+	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
+	if math.Abs(loss-expected) > 0.0001 {
+		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
+	}
+	m.ys = []int{-1, 1, 2, -1, -1}
+	loss = m.loss()
+	expected = (p(1, 1) + p(2, 2)) / 2.0
+	if math.Abs(loss-expected) > 0.0001 {
+		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
+	}
+}
+
+func TestLossSoftmax(te *testing.T) {
+	m := newModel(4, 5, 4, 1, 1, 1, []rune("abcd"))
+	m.S = testMat([][]float64{
+		{0.25, 0.33, 0.40, 0.02},
+		{0.1, 0.8, 0.05, 0.05},
+		{0.99, 0.003, 0.003, 0.003},
+		{0.5, 0.00001, 0.00001, 0.5},
+		{0.00001, 0.2, 0.39, 0.41},
+	})
+	p := func(r, c int) float64 {
+		return -math.Log(m.S.At(r, c))
 	}
 	m.ys = []int{1, 0, 2, 0, 2}
 	loss := m.loss()
@@ -585,7 +656,7 @@ func TestBackprop(te *testing.T) {
 	const eps = 1e-7
 	rng := rand.New(rand.NewSource(7357))
 	m := newModel(4, 3, 2, 2, 2, 3, []rune("abcde"))
-	println(m.size())
+	fmt.Printf("Backprop test model size: %d\n", m.size())
 	m.rand(rng)
 	for i := range m.dModel {
 		m.gamma2[i] = 0.88 + rng.Float64()

@@ -100,20 +100,18 @@ func hats(dXSThatXS, hatXS, dXS matrix) {
 func dLogits(m *model) {
 	m.dL.Zero()
 	count := 0.0
-	d, rl, cl := unmat(m.L)
-	g, _, cg := unmat(m.dL)
-	for i := range rl {
+	s, rs, cs := unmat(m.S)
+	g, _, _ := unmat(m.dL)
+	for i := range rs {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*cl : i*cl+cl]
-		rowMax, _ := rowMax(row)
-		sum := rowSum(row, rowMax)
-		for c := range cl {
-			g[i*cg+c] = math.Exp(d[i*cl+c]-rowMax) / sum
+		for c := range cs {
+			ij := i*cs + c
+			g[ij] = s[ij]
 			if m.ys[i] == c {
-				g[i*cg+c] -= 1.0
+				g[ij] -= 1.0
 			}
 		}
 	}

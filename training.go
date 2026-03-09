@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"slices"
 	"sync"
@@ -18,6 +19,7 @@ const (
 
 type trainer struct {
 	models []*model
+	theta0 vector
 
 	mode       tmode
 	training   [][]rune
@@ -41,6 +43,7 @@ func newTrainer(m *model, parallel int) *trainer {
 	}
 	return &trainer{
 		models: copies,
+		theta0: make(vector, m.size()),
 	}
 }
 
@@ -165,6 +168,8 @@ func (t *trainer) eval(theta, grad vector, iter int) {
 	if t.evalSteps > 0 && (iter%t.evalSteps == 0 || iter == t.iters) {
 		vLoss := t.validate(t.models[0])
 		fmt.Println("-")
+		t.printBlockStats()
+		fmt.Println("-")
 		fmt.Printf("Iteration %d\n", iter)
 		fmt.Printf("Training loss: %.3f\n", tLoss)
 		fmt.Printf("Validation loss: %.3f\n", vLoss)
@@ -173,6 +178,68 @@ func (t *trainer) eval(theta, grad vector, iter int) {
 			fmt.Println("-")
 		}
 	}
+}
+
+func (t *trainer) printBlockStats() {
+	model0 := t.models[0]
+	model1 := t.models[1]
+	model0.apply(t.theta0)
+	vec := func(w any) vector { // TODO mb move out
+		switch w := w.(type) {
+		case matrix:
+			v, _, _ := unmat(w)
+			return v
+		case vector:
+			return w
+		}
+		log.Panic("vec: bad input")
+		return nil
+	}
+	stats := func(label string, x0, x1 any) {
+		w0 := vec(x0)
+		w1 := vec(x1)
+		if len(w0) != len(w1) {
+			log.Panicf("deltas: incompatible lengths %d != %d", len(w0), len(w1))
+		}
+		delta := 0.0
+		for i := range w1 {
+			delta += (w1[i] - w0[i]) * (w1[i] - w0[i]) // TODO mb move out
+		}
+		delta = math.Sqrt(delta / float64(len(w1)))
+		u, o2 := meanStd(w1)
+		fmt.Printf("%s: u[%.4f], o[%.4f], d[%.4f]\n", label, u, o2, delta)
+	}
+	stats("tokens   ", model0.tokens, model1.tokens)
+	stats("positions", model0.positions, model1.positions)
+	for bi := range model1.blocks {
+		b1 := model1.blocks[bi]
+		b0 := model0.blocks[bi]
+		stats(fmt.Sprintf("blocks[%d].gamma0", bi), b0.gamma0, b1.gamma0)
+		stats(fmt.Sprintf("blocks[%d].beta0 ", bi), b0.beta0, b1.beta0)
+		println()
+		for a := range b1.attn {
+			stats(fmt.Sprintf("blocks[%d].queries[%d]", bi, a), b0.queries[a], b1.queries[a])
+			stats(fmt.Sprintf("blocks[%d].keys[%d]   ", bi, a), b0.keys[a], b1.keys[a])
+			stats(fmt.Sprintf("blocks[%d].values[%d] ", bi, a), b0.values[a], b1.values[a])
+			println()
+		}
+		stats(fmt.Sprintf("blocks[%d].proj ", bi), b0.proj, b1.proj)
+		println()
+		stats(fmt.Sprintf("blocks[%d].gamma1", bi), b0.gamma1, b1.gamma1)
+		stats(fmt.Sprintf("blocks[%d].beta1 ", bi), b0.beta1, b1.beta1)
+		println()
+		stats(fmt.Sprintf("blocks[%d].input ", bi), b0.input, b1.input)
+		stats(fmt.Sprintf("blocks[%d].bias0 ", bi), b0.bias0, b1.bias0)
+		stats(fmt.Sprintf("blocks[%d].hidden ", bi), b0.hidden, b1.hidden)
+		stats(fmt.Sprintf("blocks[%d].bias1 ", bi), b0.bias1, b1.bias1)
+		println()
+	}
+	println()
+	stats("gamma2", model0.gamma2, model1.gamma2)
+	stats("beta2", model0.beta2, model1.beta2)
+	println()
+	stats("unembed", model0.unembed, model1.unembed)
+	stats("bias2", model0.bias2, model1.bias2)
 }
 
 func train(
@@ -210,6 +277,7 @@ func train(
 	}
 	t.rng = rng
 	m.dump(theta)
+	m.dump(t.theta0)
 	t.ubatches = make([]int, ubatches)
 	adam(t, theta, iters, lr)
 	m.apply(theta)

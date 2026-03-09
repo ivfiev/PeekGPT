@@ -254,6 +254,20 @@ func sample(probs vector) int {
 	return -1
 }
 
+func meanStd(w vector) (float64, float64) {
+	n := float64(len(w))
+	u, o2 := 0.0, 0.0
+	for i := range w {
+		u += w[i]
+	}
+	u /= n
+	for i := range w {
+		o2 += (w[i] - u) * (w[i] - u)
+	}
+	o2 /= n
+	return u, math.Sqrt(o2)
+}
+
 func sgd(t *trainer, theta vector, iters int, lr float64) {
 	grad := make(vector, len(theta))
 	for i := range iters {

@@ -191,6 +191,7 @@ func (t *trainer) printBlockStats() {
 		u, o2 := meanStd(w)
 		d := delta(w, v)
 		rStr := ""
+		// TODO: effective rank does not seem to collapse very fast
 		if flags&EffRank != 0 {
 			rStr = fmt.Sprintf(", ρ[%.4f]", effRank(x1.(matrix)))
 		}

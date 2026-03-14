@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"math/rand"
 	"slices"
 	"sync"
@@ -184,62 +183,49 @@ func (t *trainer) printBlockStats() {
 	model0 := t.models[0]
 	model1 := t.models[1]
 	model0.apply(t.theta0)
-	vec := func(w any) vector { // TODO mb move out
-		switch w := w.(type) {
-		case matrix:
-			v, _, _ := unmat(w)
-			return v
-		case vector:
-			return w
+	const (
+		EffRank = 1
+	)
+	stats := func(label string, x1, x0 any, flags int) {
+		w, v := flatten(x1), flatten(x0)
+		u, o2 := meanStd(w)
+		d := delta(w, v)
+		rStr := ""
+		if flags&EffRank != 0 {
+			rStr = fmt.Sprintf(", ρ[%.4f]", effRank(x1.(matrix)))
 		}
-		log.Panic("vec: bad input")
-		return nil
+		fmt.Printf("%s: μ[%.4f], σ[%.4f], Δ[%.4f]%s\n", label, u, o2, d, rStr)
 	}
-	stats := func(label string, x0, x1 any) {
-		w0 := vec(x0)
-		w1 := vec(x1)
-		if len(w0) != len(w1) {
-			log.Panicf("deltas: incompatible lengths %d != %d", len(w0), len(w1))
-		}
-		delta := 0.0
-		for i := range w1 {
-			delta += (w1[i] - w0[i]) * (w1[i] - w0[i]) // TODO mb move out
-		}
-		delta = math.Sqrt(delta / float64(len(w1)))
-		u, o2 := meanStd(w1)
-		fmt.Printf("%s: u[%.4f], o[%.4f], d[%.4f]\n", label, u, o2, delta)
-	}
-	stats("tokens   ", model0.tokens, model1.tokens)
-	stats("positions", model0.positions, model1.positions)
+	stats("tokens", model1.tokens, model0.tokens, 0)
+	stats("positions", model1.positions, model0.positions, 0)
 	for bi := range model1.blocks {
 		b1 := model1.blocks[bi]
 		b0 := model0.blocks[bi]
-		stats(fmt.Sprintf("blocks[%d].gamma0", bi), b0.gamma0, b1.gamma0)
-		stats(fmt.Sprintf("blocks[%d].beta0 ", bi), b0.beta0, b1.beta0)
+		stats(fmt.Sprintf("blocks[%d].gamma0", bi), b1.gamma0, b0.gamma0, 0)
+		stats(fmt.Sprintf("blocks[%d].beta0", bi), b1.beta0, b0.beta0, 0)
 		println()
 		for a := range b1.attn {
-			stats(fmt.Sprintf("blocks[%d].queries[%d]", bi, a), b0.queries[a], b1.queries[a])
-			stats(fmt.Sprintf("blocks[%d].keys[%d]   ", bi, a), b0.keys[a], b1.keys[a])
-			stats(fmt.Sprintf("blocks[%d].values[%d] ", bi, a), b0.values[a], b1.values[a])
+			stats(fmt.Sprintf("blocks[%d].queries[%d]", bi, a), b1.queries[a], b0.queries[a], EffRank)
+			stats(fmt.Sprintf("blocks[%d].keys[%d]", bi, a), b1.keys[a], b0.keys[a], EffRank)
+			stats(fmt.Sprintf("blocks[%d].values[%d]", bi, a), b1.values[a], b0.values[a], EffRank)
 			println()
 		}
-		stats(fmt.Sprintf("blocks[%d].proj ", bi), b0.proj, b1.proj)
+		stats(fmt.Sprintf("blocks[%d].proj", bi), b1.proj, b0.proj, EffRank)
 		println()
-		stats(fmt.Sprintf("blocks[%d].gamma1", bi), b0.gamma1, b1.gamma1)
-		stats(fmt.Sprintf("blocks[%d].beta1 ", bi), b0.beta1, b1.beta1)
+		stats(fmt.Sprintf("blocks[%d].gamma1", bi), b1.gamma1, b0.gamma1, 0)
+		stats(fmt.Sprintf("blocks[%d].beta1", bi), b1.beta1, b0.beta1, 0)
 		println()
-		stats(fmt.Sprintf("blocks[%d].input ", bi), b0.input, b1.input)
-		stats(fmt.Sprintf("blocks[%d].bias0 ", bi), b0.bias0, b1.bias0)
-		stats(fmt.Sprintf("blocks[%d].hidden ", bi), b0.hidden, b1.hidden)
-		stats(fmt.Sprintf("blocks[%d].bias1 ", bi), b0.bias1, b1.bias1)
+		stats(fmt.Sprintf("blocks[%d].input", bi), b1.input, b0.input, EffRank)
+		stats(fmt.Sprintf("blocks[%d].bias0", bi), b1.bias0, b0.bias0, 0)
+		stats(fmt.Sprintf("blocks[%d].hidden", bi), b1.hidden, b0.hidden, EffRank)
+		stats(fmt.Sprintf("blocks[%d].bias1", bi), b1.bias1, b0.bias1, 0)
 		println()
 	}
+	stats("gamma2", model1.gamma2, model0.gamma2, 0)
+	stats("beta2", model1.beta2, model0.beta2, 0)
 	println()
-	stats("gamma2", model0.gamma2, model1.gamma2)
-	stats("beta2", model0.beta2, model1.beta2)
-	println()
-	stats("unembed", model0.unembed, model1.unembed)
-	stats("bias2", model0.bias2, model1.bias2)
+	stats("unembed", model1.unembed, model0.unembed, 0)
+	stats("bias2", model1.bias2, model0.bias2, 0)
 }
 
 func train(

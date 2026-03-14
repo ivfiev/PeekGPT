@@ -110,6 +110,55 @@ func printRow(A matrix, i int) {
 	printVec(d[i*c : i*c+c])
 }
 
+func flatten(w any) vector {
+	switch w := w.(type) {
+	case matrix:
+		v, _, _ := unmat(w)
+		return v
+	case vector:
+		return w
+	}
+	log.Panic("flatten: bad input")
+	return nil
+}
+
+func delta(u, v vector) float64 {
+	if len(u) != len(v) {
+		log.Panicf("delta: %d != %d", len(u), len(v))
+	}
+	sum := 0.0
+	for i := range u {
+		sum += (u[i] - v[i]) * (u[i] - v[i])
+	}
+	sum /= float64(len(u))
+	return math.Sqrt(sum)
+}
+
+func svd(A matrix) vector {
+	_, m, n := unmat(A)
+	sigmas := make(vector, min(m, n)) // oops
+	var svd mat.SVD
+	svd.Factorize(A, mat.SVDNone)
+	svd.Values(sigmas)
+	return sigmas
+}
+
+func effRank(A matrix) float64 {
+	sigmas := svd(A)
+	sum := 0.0
+	for _, s := range sigmas {
+		sum += s
+	}
+	H := 0.0
+	for _, s := range sigmas {
+		p := s / sum
+		if p > 1e-12 {
+			H += -p * math.Log(p)
+		}
+	}
+	return math.Exp(H) / float64(len(sigmas))
+}
+
 func zeroVec(v vector) {
 	for i := range len(v) {
 		v[i] = 0

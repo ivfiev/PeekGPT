@@ -90,7 +90,7 @@ func (m *model) printHeatmap(xs []int) {
 				} else {
 					red = int(rgb[i] * 255)
 				}
-				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm██\x1b[0m", red, 0, blue, bg, bg, bg)
+				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm█\x1b[0m", red, 0, blue, bg, bg, bg)
 			}
 			blockIx := label / 5
 			switch label % 5 {

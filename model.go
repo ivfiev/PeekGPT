@@ -456,13 +456,13 @@ func (m *model) generate(ctx []rune, n int) {
 func (m *model) solve(ctx []rune, ys []int) {
 	m.loadXs(ctx)
 	m.forward()
-	d, _, c := unmat(m.L)
+	s, _, c := unmat(m.S)
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
 	xs := []int{}
 	for _, y := range ys {
 		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(d[y*c : y*c+c])
+		_, j := rowMax(s[y*c : y*c+c])
 		prediction = append(prediction, m.vocab[j])
 		xs = append(xs, y)
 	}

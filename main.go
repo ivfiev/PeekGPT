@@ -123,7 +123,7 @@ func main() {
 	case "eval":
 		model := load(*modelpath)
 		validationSet, _ := readTrainingData(*datapath, *vsize, 0, *textmode)
-		tr := newTraining(model, *par)
+		tr := newTrainer(model, *par)
 		tr.validation = validationSet
 		loss := tr.validate(model)
 		fmt.Printf("Loss: %.12f\n", loss)

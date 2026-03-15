@@ -16,8 +16,9 @@ const (
 	text
 )
 
-type training struct {
+type trainer struct {
 	models []*model
+	theta0 vector
 
 	mode       tmode
 	training   [][]rune
@@ -30,7 +31,7 @@ type training struct {
 	rng *rand.Rand
 }
 
-func newTraining(m *model, parallel int) *training {
+func newTrainer(m *model, parallel int) *trainer {
 	copies := make([]*model, parallel)
 	for i := range copies {
 		if i == 0 {
@@ -39,8 +40,9 @@ func newTraining(m *model, parallel int) *training {
 			copies[i] = m.clone()
 		}
 	}
-	return &training{
+	return &trainer{
 		models: copies,
+		theta0: make(vector, m.size()),
 	}
 }
 
@@ -59,7 +61,7 @@ func getVocab(data [][]rune, mode tmode) []rune {
 	return vocab
 }
 
-func (t *training) loadBatch() {
+func (t *trainer) loadBatch() {
 	switch t.mode {
 	case task:
 		for i := range t.ubatches {
@@ -76,7 +78,7 @@ func (t *training) loadBatch() {
 	}
 }
 
-func (t *training) validate(m *model) float64 {
+func (t *trainer) validate(m *model) float64 {
 	loss := 0.0
 	switch t.mode {
 	case task:
@@ -95,7 +97,7 @@ func (t *training) validate(m *model) float64 {
 	return loss
 }
 
-func (t *training) pointLoss(m *model, data []rune) float64 {
+func (t *trainer) pointLoss(m *model, data []rune) float64 {
 	switch t.mode {
 	case task:
 		separator := slices.Index(data, '|')
@@ -115,7 +117,7 @@ func (t *training) pointLoss(m *model, data []rune) float64 {
 	return m.loss()
 }
 
-func (t *training) loadYs(m *model, data []rune, x, y, k int) {
+func (t *trainer) loadYs(m *model, data []rune, x, y, k int) {
 	for i := range m.ys {
 		m.ys[i] = -1
 	}
@@ -128,7 +130,7 @@ func (t *training) loadYs(m *model, data []rune, x, y, k int) {
 	}
 }
 
-func (t *training) eval(theta, grad vector, iter int) {
+func (t *trainer) eval(theta, grad vector, iter int) {
 	t.loadBatch()
 	ubInv := 1 / float64(len(t.ubatches))
 	tLoss := 0.0
@@ -165,6 +167,8 @@ func (t *training) eval(theta, grad vector, iter int) {
 	if t.evalSteps > 0 && (iter%t.evalSteps == 0 || iter == t.iters) {
 		vLoss := t.validate(t.models[0])
 		fmt.Println("-")
+		t.printBlockStats()
+		fmt.Println("-")
 		fmt.Printf("Iteration %d\n", iter)
 		fmt.Printf("Training loss: %.3f\n", tLoss)
 		fmt.Printf("Validation loss: %.3f\n", vLoss)
@@ -173,6 +177,56 @@ func (t *training) eval(theta, grad vector, iter int) {
 			fmt.Println("-")
 		}
 	}
+}
+
+func (t *trainer) printBlockStats() {
+	model0 := t.models[0]
+	model1 := t.models[1]
+	model0.apply(t.theta0)
+	const (
+		EffRank = 1
+	)
+	stats := func(label string, x1, x0 any, flags int) {
+		w, v := flatten(x1), flatten(x0)
+		u, o2 := meanStd(w)
+		d := delta(w, v)
+		rStr := ""
+		// TODO: effective rank does not seem to collapse very fast
+		if flags&EffRank != 0 {
+			rStr = fmt.Sprintf(", ρ[%.4f]", effRank(x1.(matrix)))
+		}
+		fmt.Printf("%s: μ[%.4f], σ[%.4f], Δ[%.4f]%s\n", label, u, o2, d, rStr)
+	}
+	stats("tokens", model1.tokens, model0.tokens, 0)
+	stats("positions", model1.positions, model0.positions, 0)
+	for bi := range model1.blocks {
+		b1 := model1.blocks[bi]
+		b0 := model0.blocks[bi]
+		stats(fmt.Sprintf("blocks[%d].gamma0", bi), b1.gamma0, b0.gamma0, 0)
+		stats(fmt.Sprintf("blocks[%d].beta0", bi), b1.beta0, b0.beta0, 0)
+		println()
+		for a := range b1.attn {
+			stats(fmt.Sprintf("blocks[%d].queries[%d]", bi, a), b1.queries[a], b0.queries[a], EffRank)
+			stats(fmt.Sprintf("blocks[%d].keys[%d]", bi, a), b1.keys[a], b0.keys[a], EffRank)
+			stats(fmt.Sprintf("blocks[%d].values[%d]", bi, a), b1.values[a], b0.values[a], EffRank)
+			println()
+		}
+		stats(fmt.Sprintf("blocks[%d].proj", bi), b1.proj, b0.proj, EffRank)
+		println()
+		stats(fmt.Sprintf("blocks[%d].gamma1", bi), b1.gamma1, b0.gamma1, 0)
+		stats(fmt.Sprintf("blocks[%d].beta1", bi), b1.beta1, b0.beta1, 0)
+		println()
+		stats(fmt.Sprintf("blocks[%d].input", bi), b1.input, b0.input, EffRank)
+		stats(fmt.Sprintf("blocks[%d].bias0", bi), b1.bias0, b0.bias0, 0)
+		stats(fmt.Sprintf("blocks[%d].hidden", bi), b1.hidden, b0.hidden, EffRank)
+		stats(fmt.Sprintf("blocks[%d].bias1", bi), b1.bias1, b0.bias1, 0)
+		println()
+	}
+	stats("gamma2", model1.gamma2, model0.gamma2, 0)
+	stats("beta2", model1.beta2, model0.beta2, 0)
+	println()
+	stats("unembed", model1.unembed, model0.unembed, 0)
+	stats("bias2", model1.bias2, model0.bias2, 0)
 }
 
 func train(
@@ -192,7 +246,7 @@ func train(
 	if checkpoint == nil {
 		m = newModel(dModel, context, dAttn, attn, mlp, blocks, vocab)
 	}
-	t := newTraining(m, parallel)
+	t := newTrainer(m, parallel)
 	t.mode = mode
 	t.iters = iters
 	t.evalSteps = evalSteps
@@ -210,6 +264,7 @@ func train(
 	}
 	t.rng = rng
 	m.dump(theta)
+	m.dump(t.theta0)
 	t.ubatches = make([]int, ubatches)
 	adam(t, theta, iters, lr)
 	m.apply(theta)

@@ -8,7 +8,13 @@ import (
 func (m *model) backward() {
 	dLogits(m)
 	dUnembed(m)
-	mulMatT(m.blocks[len(m.blocks)-1].dR1, m.dL, m.unembed)
+	mulMatT(m.dXS3, m.dL, m.unembed)
+	hats(m.dXS3ThatXS3, m.hatXS3, m.dXS3)
+	lastBlock := m.blocks[len(m.blocks)-1]
+	lastBlock.dR1.Zero()
+	layerNormBackward(lastBlock.dR1, lastBlock.R1,
+		m.dXS3, m.hatXS3, m.dhatXS3, m.dXS3ThatXS3,
+		m.gamma2, m.dgamma2, m.dbeta2, m.dModel, m.context)
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		m.blocks[i].backward()
 		if i > 0 {
@@ -32,7 +38,9 @@ func (b *block) backward() {
 	sumCols(b.dbias0, b.dI)
 	mulMatT(b.dXS2, b.dI, b.input)
 	hats(b.dXS2ThatXS2, b.hatXS2, b.dXS2)
-	layerNormBackward(b, b.dR0, b.R0, b.dXS2, b.hatXS2, b.dhatXS2, b.dXS2ThatXS2, b.gamma1, b.dgamma1, b.dbeta1)
+	layerNormBackward(b.dR0, b.R0,
+		b.dXS2, b.hatXS2, b.dhatXS2, b.dXS2ThatXS2,
+		b.gamma1, b.dgamma1, b.dbeta1, b.dModel, b.context)
 
 	b.dP.Copy(b.dR0)
 	b.dXS0.Copy(b.dR0)
@@ -62,7 +70,9 @@ func (b *block) backward() {
 		// dz/dy = g'(y) + h'(y)
 	}
 	hats(b.dXS1ThatXS1, b.hatXS1, b.dXS1)
-	layerNormBackward(b, b.dXS0, b.XS0, b.dXS1, b.hatXS1, b.dhatXS1, b.dXS1ThatXS1, b.gamma0, b.dgamma0, b.dbeta0)
+	layerNormBackward(b.dXS0, b.XS0,
+		b.dXS1, b.hatXS1, b.dhatXS1, b.dXS1ThatXS1,
+		b.gamma0, b.dgamma0, b.dbeta0, b.dModel, b.context)
 }
 
 func dactivation(dI, dA, I matrix) {
@@ -81,29 +91,27 @@ func dactivation(dI, dA, I matrix) {
 func hats(dXSThatXS, hatXS, dXS matrix) {
 	dxshatxs, _, _ := unmat(dXSThatXS)
 	dxs, _, _ := unmat(dXS)
-	dhatxs, _, _ := unmat(hatXS)
+	hatxs, _, _ := unmat(hatXS)
 	for i := range dxshatxs {
-		dxshatxs[i] = dxs[i] * dhatxs[i]
+		dxshatxs[i] = dxs[i] * hatxs[i]
 	}
 }
 
 func dLogits(m *model) {
 	m.dL.Zero()
 	count := 0.0
-	d, rl, cl := unmat(m.L)
-	g, _, cg := unmat(m.dL)
-	for i := range rl {
+	s, rs, cs := unmat(m.S)
+	g, _, _ := unmat(m.dL)
+	for i := range rs {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*cl : i*cl+cl]
-		rowMax, _ := rowMax(row)
-		sum := rowSum(row, rowMax)
-		for c := range cl {
-			g[i*cg+c] = math.Exp(d[i*cl+c]-rowMax) / sum
+		for c := range cs {
+			ij := i*cs + c
+			g[ij] = s[ij]
 			if m.ys[i] == c {
-				g[i*cg+c] -= 1.0
+				g[ij] -= 1.0
 			}
 		}
 	}
@@ -122,8 +130,7 @@ func dSVs(b *block) {
 }
 
 func dUnembed(m *model) {
-	block := m.blocks[len(m.blocks)-1]
-	mulTmat(m.dunembed, block.R1, m.dL)
+	mulTmat(m.dunembed, m.XS3, m.dL)
 	sumCols(m.dbias2, m.dL)
 }
 
@@ -139,7 +146,7 @@ func dEmbed(m *model) {
 	}
 }
 
-func layerNormBackward(b *block, dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix, gamma, dgamma, dbeta vector) {
+func layerNormBackward(dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix, gamma, dgamma, dbeta vector, dModel, ctx int) {
 	sumCols(dgamma, dXSThatXS)
 	sumCols(dbeta, dXS)
 	xs, _, _ := unmat(XS)
@@ -149,7 +156,6 @@ func layerNormBackward(b *block, dLdXS, XS, dXS, hatXS, dhatXS, dXSThatXS matrix
 	dldxs, _, _ := unmat(dLdXS)
 	// dL/dXS
 	const eps = 0.00001
-	ctx, dModel := b.context, b.dModel
 	for i := range ctx {
 		u := 0.0
 		for j := range dModel {

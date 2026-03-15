@@ -110,6 +110,55 @@ func printRow(A matrix, i int) {
 	printVec(d[i*c : i*c+c])
 }
 
+func flatten(w any) vector {
+	switch w := w.(type) {
+	case matrix:
+		v, _, _ := unmat(w)
+		return v
+	case vector:
+		return w
+	}
+	log.Panic("flatten: bad input")
+	return nil
+}
+
+func delta(u, v vector) float64 {
+	if len(u) != len(v) {
+		log.Panicf("delta: %d != %d", len(u), len(v))
+	}
+	sum := 0.0
+	for i := range u {
+		sum += (u[i] - v[i]) * (u[i] - v[i])
+	}
+	sum /= float64(len(u))
+	return math.Sqrt(sum)
+}
+
+func svd(A matrix) vector {
+	_, m, n := unmat(A)
+	sigmas := make(vector, min(m, n)) // oops
+	var svd mat.SVD
+	svd.Factorize(A, mat.SVDNone)
+	svd.Values(sigmas)
+	return sigmas
+}
+
+func effRank(A matrix) float64 {
+	sigmas := svd(A)
+	sum := 0.0
+	for _, s := range sigmas {
+		sum += s
+	}
+	H := 0.0
+	for _, s := range sigmas {
+		p := s / sum
+		if p > 1e-12 {
+			H += -p * math.Log(p)
+		}
+	}
+	return math.Exp(H) / float64(len(sigmas))
+}
+
 func zeroVec(v vector) {
 	for i := range len(v) {
 		v[i] = 0
@@ -171,7 +220,7 @@ func rowSum(row vector, rowMax float64) float64 {
 	return sum
 }
 
-func softmaxT(S, A matrix) {
+func softmax(S, A matrix, triangle bool) {
 	dA, rA, cA := unmat(A)
 	dS, rS, cS := unmat(S)
 	if rS != rA || cS != cA {
@@ -179,20 +228,23 @@ func softmaxT(S, A matrix) {
 	}
 	S.Zero()
 	for i := range rA {
-		triangle := i + 1
-		rowA := dA[i*cA : i*cA+triangle]
-		rowS := dS[i*cS : i*cS+triangle]
+		end := cA
+		if triangle {
+			end = i + 1
+		}
+		rowA := dA[i*cA : i*cA+end]
+		rowS := dS[i*cS : i*cS+end]
 		rowMax, _ := rowMax(rowA)
 		if rowMax == 0 {
 			continue
 		}
 		var sum float64
-		for j := range triangle {
+		for j := range end {
 			f := math.Exp(rowA[j] - rowMax)
 			rowS[j] = f
 			sum += f
 		}
-		for j := range triangle {
+		for j := range end {
 			rowS[j] /= sum
 		}
 	}
@@ -238,22 +290,34 @@ func ReLU(x float64) float64 {
 	return 0
 }
 
-func softSample(logits vector) int {
-	rm, _ := rowMax(logits)
-	sum := rowSum(logits, rm)
+func sample(probs vector) int {
 	var running float64 = 0
 	r := rand.Float64()
-	for i := range logits {
-		running += math.Exp(logits[i]-rm) / sum
+	for i := range probs {
+		running += probs[i]
 		if r < running {
 			return i
 		}
 	}
-	log.Fatal("failed to softsample")
+	log.Fatal("failed to sample")
 	return -1
 }
 
-func sgd(t *training, theta vector, iters int, lr float64) {
+func meanStd(w vector) (float64, float64) {
+	n := float64(len(w))
+	u, o2 := 0.0, 0.0
+	for i := range w {
+		u += w[i]
+	}
+	u /= n
+	for i := range w {
+		o2 += (w[i] - u) * (w[i] - u)
+	}
+	o2 /= n
+	return u, math.Sqrt(o2)
+}
+
+func sgd(t *trainer, theta vector, iters int, lr float64) {
 	grad := make(vector, len(theta))
 	for i := range iters {
 		zeroVec(grad)
@@ -262,7 +326,7 @@ func sgd(t *training, theta vector, iters int, lr float64) {
 	}
 }
 
-func adam(t *training, theta vector, iters int, lr float64) {
+func adam(t *trainer, theta vector, iters int, lr float64) {
 	const (
 		b1  = 0.9
 		b2  = 0.999

@@ -25,17 +25,27 @@ type model struct {
 
 	blocks []*block
 
+	// pre-logit layernorm shite
+	gamma2 vector
+	beta2  vector
+	XS3    matrix
+	hatXS3 matrix
 	// to-logit map parameters
 	unembed matrix
 	bias2   vector
 
-	// logits
-	L matrix
+	L matrix // logits
+	S matrix // final output probs
 
 	// derivatives
-	dL       matrix
-	dunembed matrix
-	dbias2   vector
+	dunembed    matrix
+	dbias2      vector
+	dgamma2     vector
+	dbeta2      vector
+	dL          matrix
+	dXS3        matrix
+	dhatXS3     matrix
+	dXS3ThatXS3 matrix
 
 	dtokens    matrix
 	dpositions matrix
@@ -154,19 +164,31 @@ func newModel(dModel, ctx, dAttn, attn, mlp, blocks int, vocab []rune) *model {
 		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, mlp, ReLU)
 	}
 
+	m.gamma2 = make(vector, dModel)
+	m.beta2 = make(vector, dModel)
 	m.unembed = makeMat(dModel, dVocab)
 	m.bias2 = make(vector, dVocab)
+	m.XS3 = makeMat(ctx, dModel)
 	m.L = makeMat(ctx, dVocab)
+	m.S = makeMat(ctx, dVocab)
 
 	m.ys = make([]int, ctx)
 	m.vocab = vocab
 
-	m.dL = makeMat(ctx, dVocab)
+	m.dgamma2 = make(vector, dModel)
+	m.dbeta2 = make(vector, dModel)
+
 	m.dunembed = makeMat(dModel, dVocab)
 	m.dbias2 = make(vector, dVocab)
 
 	m.dtokens = makeMat(dVocab, dModel)
 	m.dpositions = makeMat(ctx, dModel)
+
+	m.dL = makeMat(ctx, dVocab)
+	m.hatXS3 = makeMat(ctx, dModel)
+	m.dhatXS3 = makeMat(ctx, dModel)
+	m.dXS3 = makeMat(ctx, dModel)
+	m.dXS3ThatXS3 = makeMat(ctx, dModel)
 
 	return &m
 }
@@ -291,9 +313,10 @@ func (m *model) forward() {
 		b.forward()
 		xs = b.R1
 	}
-	// TODO layerNorm?
-	mulMat(m.L, xs, m.unembed)
+	layerNorm(m.XS3, m.hatXS3, xs, m.gamma2, m.beta2)
+	mulMat(m.L, m.XS3, m.unembed)
 	addMatV(m.L, m.bias2)
+	softmax(m.S, m.L, false)
 }
 
 func (b *block) forward() {
@@ -306,7 +329,7 @@ func (b *block) forward() {
 		mulMatT(b.QK[i], b.Q[i], b.K[i])
 		d := 1 / math.Sqrt(float64(b.dAttn))
 		mulMatK(b.QK[i], d)
-		softmaxT(b.S[i], b.QK[i])
+		softmax(b.S[i], b.QK[i], true)
 		mulMat(b.SV[i], b.S[i], b.V[i])
 	}
 	catMat(b.CV, b.SV)
@@ -325,16 +348,14 @@ func (b *block) forward() {
 func (m *model) loss() float64 {
 	loss := 0.0
 	count := 0
-	d, r, c := unmat(m.L)
+	s, r, c := unmat(m.S)
 	for i := range r {
 		if m.ys[i] == -1 {
 			continue
 		}
 		count++
-		row := d[i*c : i*c+c]
-		rowMax, _ := rowMax(row)
-		sum := rowSum(row, rowMax)
-		loss += -d[i*c+m.ys[i]] + rowMax + math.Log(sum)
+		p := s[i*c+m.ys[i]]
+		loss += -math.Log(p)
 	}
 	return loss / float64(count)
 }
@@ -347,8 +368,8 @@ func (m *model) size() int {
 	return blocks +
 		len(m.tokens.RawMatrix().Data) +
 		len(m.positions.RawMatrix().Data) +
-		len(m.unembed.RawMatrix().Data) +
-		len(m.bias2)
+		len(m.gamma2) + len(m.beta2) +
+		len(m.unembed.RawMatrix().Data) + len(m.bias2)
 }
 
 func (b *block) size() int {
@@ -406,28 +427,25 @@ func (b *block) loadXs(xs matrix) {
 func (m *model) predict(ctx []rune) ([]rune, vector) {
 	m.loadXs(ctx)
 	m.forward()
-	d, _, c := unmat(m.L)
+	s, _, c := unmat(m.S)
 	nexts := make([]rune, len(ctx))
 	probs := make(vector, len(ctx))
 	for tokIx := range len(ctx) {
-		rm, i := rowMax(d[c*tokIx : c*tokIx+c])
-		sum := rowSum(d[tokIx*c:tokIx*c+c], rm)
-		prob := math.Exp(d[tokIx*c+i]-rm) / sum
+		_, i := rowMax(s[c*tokIx : c*tokIx+c])
 		nexts[tokIx] = m.vocab[i]
-		probs[tokIx] = prob
+		probs[tokIx] = s[tokIx*c+i]
 	}
 	return nexts, probs
 }
 
 func (m *model) generate(ctx []rune, n int) {
 	fmt.Printf("%s", string(ctx))
-	d, _, c := unmat(m.L)
+	d, _, c := unmat(m.S)
 	for range n {
 		m.loadXs(ctx)
 		m.forward()
 		tokIx := len(ctx) - 1
-		// printVec(t.L[tokIx])
-		i := softSample(d[tokIx*c : tokIx*c+c])
+		i := sample(d[tokIx*c : tokIx*c+c])
 		fmt.Printf("%c", m.vocab[i])
 		ctx = append(ctx, m.vocab[i])
 		ctx = ctx[max(0, len(ctx)-m.context):]
@@ -438,13 +456,13 @@ func (m *model) generate(ctx []rune, n int) {
 func (m *model) solve(ctx []rune, ys []int) {
 	m.loadXs(ctx)
 	m.forward()
-	d, _, c := unmat(m.L)
+	s, _, c := unmat(m.S)
 	prediction := make([]rune, 0)
 	// fmt.Println(string(t.vocab))
 	xs := []int{}
 	for _, y := range ys {
 		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(d[y*c : y*c+c])
+		_, j := rowMax(s[y*c : y*c+c])
 		prediction = append(prediction, m.vocab[j])
 		xs = append(xs, y)
 	}
@@ -457,37 +475,32 @@ func (m *model) solve(ctx []rune, ys []int) {
 }
 
 func (m *model) rand(rng *rand.Rand) {
-	mat := func(m matrix, scale float64) {
+	mat := func(m matrix, std float64) {
 		d, r, c := unmat(m)
 		for i := range r {
 			for j := range c {
-				d[i*c+j] = scale * 2 * (rng.Float64() - 0.5)
+				d[i*c+j] = rng.NormFloat64() * std
 			}
 		}
 	}
-	mat(m.tokens, 0.2)
-	mat(m.positions, 0.2)
+	std := 1 / math.Sqrt(float64(m.dModel))
+	mat(m.tokens, math.Sqrt(0.5))
+	mat(m.positions, math.Sqrt(0.5))
 	for _, b := range m.blocks {
 		for i := range b.gamma0 {
 			b.gamma0[i] = 1
-		}
-		for i := range b.beta0 {
 			b.beta0[i] = 0
-		}
-		for i := range b.gamma1 {
 			b.gamma1[i] = 1
-		}
-		for i := range b.beta1 {
 			b.beta1[i] = 0
 		}
 		for i := range b.attn {
-			mat(b.queries[i], 0.2)
-			mat(b.keys[i], 0.2)
-			mat(b.values[i], 0.2)
+			mat(b.queries[i], std)
+			mat(b.keys[i], std)
+			mat(b.values[i], std)
 		}
-		mat(b.proj, 0.2)
-		mat(b.input, 0.2)
-		mat(b.hidden, 0.2)
+		mat(b.proj, std)
+		mat(b.input, std)
+		mat(b.hidden, 0) // yolo
 		for i := range b.bias0 {
 			b.bias0[i] = 0
 		}
@@ -495,7 +508,11 @@ func (m *model) rand(rng *rand.Rand) {
 			b.bias1[i] = 0
 		}
 	}
-	mat(m.unembed, 0.2)
+	for i := range m.gamma2 {
+		m.gamma2[i] = 1
+		m.beta2[i] = 0
+	}
+	mat(m.unembed, std)
 	for i := range m.bias2 {
 		m.bias2[i] = 0
 	}
@@ -530,6 +547,8 @@ func (m *model) apply(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
+	vec(m.gamma2)
+	vec(m.beta2)
 	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
@@ -566,6 +585,8 @@ func (m *model) dump(theta vector) {
 		mat(b.hidden)
 		vec(b.bias1)
 	}
+	vec(m.gamma2)
+	vec(m.beta2)
 	mat(m.unembed)
 	vec(m.bias2)
 	if M != len(theta) {
@@ -614,6 +635,8 @@ func (m *model) grad(theta vector, k float64) {
 		mat(b.dhidden)
 		vec(b.dbias1)
 	}
+	vec(m.dgamma2)
+	vec(m.dbeta2)
 	mat(m.dunembed)
 	vec(m.dbias2)
 	if M != len(theta) {

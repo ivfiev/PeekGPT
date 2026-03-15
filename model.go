@@ -21,11 +21,11 @@ type model struct {
 
 	prompt []rune
 	XS     matrix // inputs
-	ys     []int  // output targets, used for loss
+	ys     []int  // output targets
 
 	blocks []*block
 
-	// pre-logit layernorm shite
+	// pre-logit layernorm
 	gamma2 vector
 	beta2  vector
 	XS3    matrix
@@ -35,7 +35,7 @@ type model struct {
 	bias2   vector
 
 	L matrix // logits
-	S matrix // final output probs
+	S matrix // output probs
 
 	// derivatives
 	dunembed    matrix
@@ -71,11 +71,10 @@ type block struct {
 	beta1  vector
 
 	// MLP
-	input      matrix
-	bias0      vector
-	activation func(float64) float64
-	hidden     matrix
-	bias1      vector
+	input  matrix
+	bias0  vector
+	hidden matrix
+	bias1  vector
 
 	// inputs
 	XS0 matrix
@@ -161,7 +160,7 @@ func newModel(dModel, ctx, dAttn, attn, mlp, blocks int, vocab []rune) *model {
 
 	m.blocks = make([]*block, blocks)
 	for i := range blocks {
-		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, mlp, ReLU)
+		m.blocks[i] = newBlock(dModel, ctx, dAttn, attn, mlp)
 	}
 
 	m.gamma2 = make(vector, dModel)
@@ -193,7 +192,7 @@ func newModel(dModel, ctx, dAttn, attn, mlp, blocks int, vocab []rune) *model {
 	return &m
 }
 
-func newBlock(dModel, ctx, dAttn, attn, mlp int, activation func(float64) float64) *block {
+func newBlock(dModel, ctx, dAttn, attn, mlp int) *block {
 	b := block{
 		dModel:  dModel,
 		context: ctx,
@@ -223,7 +222,6 @@ func newBlock(dModel, ctx, dAttn, attn, mlp int, activation func(float64) float6
 
 	b.input = makeMat(dModel, mlp*dModel)
 	b.bias0 = make(vector, mlp*dModel)
-	b.activation = activation
 	b.hidden = makeMat(mlp*dModel, dModel)
 	b.bias1 = make(vector, dModel)
 
@@ -339,7 +337,7 @@ func (b *block) forward() {
 	layerNorm(b.XS2, b.hatXS2, b.R0, b.gamma1, b.beta1)
 	mulMat(b.I, b.XS2, b.input)
 	addMatV(b.I, b.bias0)
-	mapMat(b.A, b.I, b.activation)
+	mapMat(b.A, b.I, ReLU)
 	mulMat(b.H, b.A, b.hidden)
 	addMatV(b.H, b.bias1)
 	addMatM(b.R1, b.R0, b.H)

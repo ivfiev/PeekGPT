@@ -259,15 +259,15 @@ func train(
 	m.vocab = vocab
 	theta := make(vector, m.size())
 	rng := rand.New(rand.NewSource(seed))
+	t.rng = rng
 	if checkpoint == nil {
 		m.rand(rng)
 	}
-	t.rng = rng
 	m.dump(theta)
 	m.dump(t.theta0)
 	t.ubatches = make([]int, ubatches)
 	adam(t, theta, iters, lr)
 	m.apply(theta)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
-	return t.models[0]
+	return m
 }

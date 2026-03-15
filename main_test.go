@@ -245,7 +245,7 @@ func TestSoftmax(te *testing.T) {
 }
 
 func TestBlockLayerNorm(te *testing.T) {
-	b := newBlock(4, 3, 4, 2, 1, ReLU)
+	b := newBlock(4, 3, 4, 2, 1)
 	b.XS0 = testMat([][]float64{
 		{1, 0, 0, 0},
 		{0, 0, 0, 1},
@@ -481,13 +481,13 @@ func TestLossSoftmax(te *testing.T) {
 	m.ys = []int{1, 0, 2, 0, 2}
 	loss := m.loss()
 	expected := (p(0, 1) + p(1, 0) + p(2, 2) + p(3, 0) + p(4, 2)) / 5.0
-	if math.Abs(loss-expected) > 0.0001 {
+	if math.Abs(loss-expected) > 0.0000000001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}
 	m.ys = []int{-1, 1, 2, -1, -1}
 	loss = m.loss()
 	expected = (p(1, 1) + p(2, 2)) / 2.0
-	if math.Abs(loss-expected) > 0.0001 {
+	if math.Abs(loss-expected) > 0.0000000001 {
 		te.Fatalf("Losses are not equal: %f != %f", loss, expected)
 	}
 }

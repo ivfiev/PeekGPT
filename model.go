@@ -467,8 +467,6 @@ func (m *model) solve(ctx []rune, ys []int) {
 	println()
 	m.printHeatmap(xs)
 	println()
-	m.printAttention()
-	println()
 	fmt.Printf("Input: [%s]\nPrediction: [%s]\n\n", string(ctx), string(prediction))
 }
 

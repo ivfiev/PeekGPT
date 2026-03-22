@@ -2,65 +2,50 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math"
 )
 
-func (m *model) printAttention() {
-	for bi, b := range m.blocks {
-		for i := range m.prompt {
-			for a := range b.attn {
-				fmt.Printf("%c ", m.prompt[i])
-				for j := range m.prompt {
-					fg, bg := 0, 0
-					fg = int(255 * b.S[a].At(i, j))
-					fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
-				}
-				fmt.Printf("     ")
+func (m *model) printAttention(bi int) {
+	b := m.blocks[bi]
+	for i := range m.prompt {
+		for a := range b.attn {
+			fmt.Printf("%c ", m.prompt[i])
+			for j := range m.prompt {
+				fg, bg := 0, 0
+				fg = int(255 * b.S[a].At(i, j))
+				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
 			}
-			println()
-		}
-		fmt.Printf("   ")
-		for range b.attn {
-			for _, c := range m.prompt {
-				fmt.Printf("%c  ", c)
-			}
-			fmt.Printf("       ")
+			fmt.Printf("     ")
 		}
 		println()
-		if bi < len(m.blocks)-1 {
-			println()
+	}
+	fmt.Printf("   ")
+	for range b.attn {
+		for _, c := range m.prompt {
+			fmt.Printf("%c  ", c)
 		}
+		fmt.Printf("       ")
 	}
 }
 
 func (m *model) calcHeatmap(x int, As []matrix) []vector {
-	target := make(vector, m.dModel)
-	d, _, c := unmat(m.L)
-	_, rmix := rowMax(d[x*c : x*c+c])
-	for i := range m.dModel {
-		target[i] = m.unembed.At(i, rmix)
-	}
-	maxProd := math.Inf(-1)
-	minProd := math.Inf(1)
+	rgbs := make([]vector, 0, len(As))
+	maxVal := math.Inf(-1)
+	minVal := math.Inf(1)
 	for _, A := range As {
 		d, _, c := unmat(A) // matRow or sth, srs...
-		x := d[x*c : x*c+c]
-		if len(x) != len(target) {
-			log.Panicf("Incompatible heatmaps, %d != %d", len(x), len(target))
-		}
-		for i := range x {
-			maxProd = max(maxProd, x[i]*target[i])
-			minProd = min(minProd, x[i]*target[i])
+		X := d[x*c : x*c+c]
+		for i := range X {
+			maxVal = max(maxVal, X[i])
+			minVal = min(minVal, X[i])
 		}
 	}
-	rgbs := make([]vector, 0, len(As))
 	for _, A := range As {
 		rgb := make(vector, m.dModel)
 		d, _, c := unmat(A)
 		x := d[x*c : x*c+c]
 		for i := range rgb {
-			rgb[i] = (x[i] * target[i]) / (maxProd - minProd)
+			rgb[i] = x[i] / (maxVal - minVal)
 		}
 		rgbs = append(rgbs, rgb)
 	}
@@ -96,10 +81,15 @@ func (m *model) printHeatmap(xs []int) {
 			switch label % 5 {
 			case 0:
 				fmt.Printf("  Block #%d, \"%s\"\n", 1+blockIx, tokenHighlight(m.prompt, xs[x]))
+				printStats(m.blocks[blockIx].XS0, x)
 			case 1:
-				fmt.Printf("  Attention Δ")
+				fmt.Printf("  Attention Δ\n")
+				println()
+				m.printAttention(blockIx)
+				println()
 			case 2:
 				fmt.Printf("  Post-attention\n")
+				printStats(m.blocks[blockIx].R0, x)
 			case 3:
 				fmt.Printf("  MLP Δ")
 			case 4:
@@ -108,11 +98,19 @@ func (m *model) printHeatmap(xs []int) {
 					final = ", final output"
 				}
 				fmt.Printf("  Post-MLP%s\n", final)
+				printStats(m.blocks[blockIx].R1, x)
 			}
 			println()
 		}
 		println()
 	}
+}
+
+func printStats(A matrix, x int) {
+	a, _, c := unmat(A)
+	v := a[x*c : x*c+c]
+	u, o2 := meanStd(v)
+	fmt.Printf("μ[%.4f], σ[%.4f]\n", u, o2)
 }
 
 func tokenHighlight(prompt []rune, i int) string {

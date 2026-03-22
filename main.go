@@ -33,7 +33,7 @@ func main() {
 	dattn := flag.Int("dattn", 0, "dattn")
 	attn := flag.Int("attn", 1, "attn")
 	blocks := flag.Int("blocks", 1, "blocks")
-	lr := flag.Float64("lr", 0.0001, "learning rate")
+	lr := flag.Float64("lr", 0.001, "learning rate")
 	iters := flag.Int("iters", 1000, "training iterations")
 	ubatches := flag.Int("ub", 64, "micro-batches")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")

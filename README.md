@@ -1,19 +1,23 @@
-# tiny-transformers
-Minimal from-scratch implementation of a simple transformer model.
-- Learnable token & position embeddings
-- LayerNorm
-- Multi-head attention
-- Residuals
-- MLP
-- Multiple blocks
+# PeekGPT
+Minimal from-scratch implementation of a transformer with focus on interpretability.
 
-No API calls, no external dependencies other than [gonum](https://github.com/gonum/gonum) matrix library.
+No network/API calls, no external dependencies other than [gonum](https://github.com/gonum/gonum) matrix library.
 
-[OpenBLAS](https://github.com/OpenMathLib/OpenBLAS) recommended, if possible a build with AVX512 support.
+[OpenBLAS](https://github.com/OpenMathLib/OpenBLAS) can be linked in (very recommended for 1x-10x speedups), if possible a build with AVX512 support.
 
-Included are some simple tasks for training, eg copy/reverse/index a string, sum integers, etc. 
+## Overview
+<img width="600" height="1200" alt="image" src="https://github.com/user-attachments/assets/3d442d70-7092-49be-88e2-2db41df1e5cc" />
+
+<br/><br/>
 
 ## Example
+Below is an example for an 18k parameter model trained to reverse strings up to 10 chars in length.
+
+Trace shows path of the last 32-dimensional vector. Blue indicates negative values, red - positive. Black is near 0.
+
+<img width="2180" height="1876" alt="image" src="https://github.com/user-attachments/assets/3b01e23b-364c-4743-a80b-907a64d7b79f" />
+
+<br/><br/>
 
 #### Execute unit tests:
 `go test`
@@ -26,24 +30,5 @@ Included are some simple tasks for training, eg copy/reverse/index a string, sum
 
 #### Inference.
 `go run . -mode load -model ./models/reverse10 -prompt '123456789|?????????'`
-
-
-### Heatmap
-Shows the transformations to the input vector as it progresses through the model.
-
-<img width="1238" height="300" alt="image" src="https://github.com/user-attachments/assets/0ae1636f-ac12-4b69-80af-88f0306fb7d4" />
-
-
-### Attention matrices
-<img width="247" height="437" alt="image" src="https://github.com/user-attachments/assets/e7732d6c-ec7c-44f4-9811-a5c1aa08027d" />
-
-<br>
-<br>
-<br>
-<br>
-
-A larger example with ctx 21 - nice patterns in the lower matrix.
-
-<img width="523" height="874" alt="image" src="https://github.com/user-attachments/assets/27f76643-c57d-4cab-9429-f73c930ee8f9" />
 
 

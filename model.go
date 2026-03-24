@@ -466,7 +466,6 @@ func (m *model) solve(ctx []rune, ys []int) {
 	}
 	println()
 	m.printHeatmap(xs)
-	println()
 	fmt.Printf("Input: [%s]\nPrediction: [%s]\n\n", string(ctx), string(prediction))
 }
 
@@ -480,6 +479,7 @@ func (m *model) rand(rng *rand.Rand) {
 		}
 	}
 	std := 1 / math.Sqrt(float64(m.dModel))
+	stdmlp := 1 / math.Sqrt(float64(m.dModel*m.mlp))
 	mat(m.tokens, math.Sqrt(0.5))
 	mat(m.positions, math.Sqrt(0.5))
 	for _, b := range m.blocks {
@@ -496,7 +496,7 @@ func (m *model) rand(rng *rand.Rand) {
 		}
 		mat(b.proj, std)
 		mat(b.input, std)
-		mat(b.hidden, 0) // yolo
+		mat(b.hidden, stdmlp)
 		for i := range b.bias0 {
 			b.bias0[i] = 0
 		}

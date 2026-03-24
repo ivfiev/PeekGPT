@@ -560,7 +560,7 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.beta1, func(f float64) bool { return f == 0 })
 		assert(b.input, func(f float64) bool { return f != 0 })
 		assert(b.bias0, func(f float64) bool { return f == 0 })
-		assert(b.hidden, func(f float64) bool { return f == 0 })
+		assert(b.hidden, func(f float64) bool { return f != 0 })
 		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
 	assert(m.gamma2, func(f float64) bool { return f == 1 })

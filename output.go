@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 func (m *model) printAttention(bi int) {
@@ -65,6 +66,11 @@ func (m *model) printHeatmap(xs []int) {
 		}
 		heatmaps = append(heatmaps, m.calcHeatmap(x, As))
 	}
+	width := 2
+	if m.dModel > 64 {
+		width = 1
+	}
+	strip := strings.Repeat("█", width)
 	for x, heatmap := range heatmaps {
 		println()
 		for label, rgb := range heatmap {
@@ -75,12 +81,12 @@ func (m *model) printHeatmap(xs []int) {
 				} else {
 					red = int(rgb[i] * 255)
 				}
-				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm█\x1b[0m", red, 0, blue, bg, bg, bg)
+				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm%s\x1b[0m", red, 0, blue, bg, bg, bg, strip)
 			}
 			blockIx := label / 5
 			switch label % 5 {
 			case 0:
-				fmt.Printf("  Block #%d, \"%s\"\n", 1+blockIx, tokenHighlight(m.prompt, xs[x]))
+				fmt.Printf("  Block #%d, \"%s\" - ", 1+blockIx, tokenHighlight(m.prompt, xs[x]))
 				printStats(m.blocks[blockIx].XS0, x)
 			case 1:
 				fmt.Printf("  Attention Δ\n")
@@ -88,7 +94,7 @@ func (m *model) printHeatmap(xs []int) {
 				m.printAttention(blockIx)
 				println()
 			case 2:
-				fmt.Printf("  Post-attention\n")
+				fmt.Printf("  Post-attention - ")
 				printStats(m.blocks[blockIx].R0, x)
 			case 3:
 				fmt.Printf("  MLP Δ")
@@ -97,7 +103,7 @@ func (m *model) printHeatmap(xs []int) {
 				if blockIx == len(m.blocks)-1 {
 					final = ", final output"
 				}
-				fmt.Printf("  Post-MLP%s\n", final)
+				fmt.Printf("  Post-MLP%s - ", final)
 				printStats(m.blocks[blockIx].R1, x)
 			}
 			println()

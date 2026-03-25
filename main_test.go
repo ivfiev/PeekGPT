@@ -424,13 +424,13 @@ func TestHeatmaps(te *testing.T) {
 		m.blocks[0].R1,
 	})
 	m.prompt = []rune("abc")
-	m.printHeatmap([]int{1})
+	m.printHeatmap(1)
 	assertEq(testMat(heatmaps), [][]float64{
-		{0, -0.2, 0, 0.8},
-		{-0.2, -0.2, -0.2, 0},
-		{0, -0.2, -0.2, 0},
-		{0, -0.2, 0, 0.8},
-		{0, -0.2, 0, 0.8},
+		{0, 0.333, 0, 0.666},
+		{-0.333, 0.333, 0.333, 0},
+		{0, 0.333, 0.333, 0},
+		{0, 0.333, 0, 0.666},
+		{0, 0.333, 0, 0.666},
 	}, "heatmaps", te)
 }
 
@@ -560,7 +560,7 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.beta1, func(f float64) bool { return f == 0 })
 		assert(b.input, func(f float64) bool { return f != 0 })
 		assert(b.bias0, func(f float64) bool { return f == 0 })
-		assert(b.hidden, func(f float64) bool { return f != 0 })
+		assert(b.hidden, func(f float64) bool { return f == 0 })
 		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
 	assert(m.gamma2, func(f float64) bool { return f == 1 })

@@ -57,19 +57,17 @@ func (m *model) calcHeatmap(x int, As []matrix) []vector {
 	return rgbs
 }
 
-func (m *model) printHeatmap(xs []int) {
+func (m *model) printHeatmap(x int) {
 	heatmaps := [][]vector{}
 	As := make([]matrix, 5*len(m.blocks))
-	for _, x := range xs {
-		for i, b := range m.blocks {
-			As[0+i*5] = b.XS0
-			As[1+i*5] = b.P
-			As[2+i*5] = b.R0
-			As[3+i*5] = b.H
-			As[4+i*5] = b.R1
-		}
-		heatmaps = append(heatmaps, m.calcHeatmap(x, As))
+	for i, b := range m.blocks {
+		As[0+i*5] = b.XS0
+		As[1+i*5] = b.P
+		As[2+i*5] = b.R0
+		As[3+i*5] = b.H
+		As[4+i*5] = b.R1
 	}
+	heatmaps = append(heatmaps, m.calcHeatmap(x, As))
 	width := 2
 	if m.dModel > 64 {
 		width = 1
@@ -90,7 +88,7 @@ func (m *model) printHeatmap(xs []int) {
 			blockIx := label / 5
 			switch label % 5 {
 			case 0:
-				fmt.Printf("  Block #%d, \"%s\" - ", 1+blockIx, tokenHighlight(m.prompt, xs[x]))
+				fmt.Printf("  Block #%d, \"%s\" - ", 1+blockIx, tokenHighlight(m.prompt, x))
 				printStats(m.blocks[blockIx].XS0, x)
 			case 1:
 				fmt.Printf("  Attention Δ")

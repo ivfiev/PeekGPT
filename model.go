@@ -451,22 +451,19 @@ func (m *model) generate(ctx []rune, n int) {
 	println()
 }
 
-func (m *model) solve(ctx []rune, ys []int) {
+func (m *model) peek(ctx []rune, i int, peekMode string) {
 	m.loadXs(ctx)
 	m.forward()
-	s, _, c := unmat(m.S)
-	prediction := make([]rune, 0)
-	// fmt.Println(string(t.vocab))
-	xs := []int{}
-	for _, y := range ys {
-		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(s[y*c : y*c+c])
-		prediction = append(prediction, m.vocab[j])
-		xs = append(xs, y)
+	switch peekMode {
+	case "heatmap":
+		m.printHeatmap([]int{i})
+		fmt.Printf("Highlighted prompt [%s]\n", tokenHighlight(ctx, i))
+		m.printNextTokenProbs(i)
+	case "attention":
+		m.printAttention()
+	default:
+		log.Panicf("Unrecognised peek mode '%s'", peekMode)
 	}
-	println()
-	m.printHeatmap(xs)
-	fmt.Printf("Input: [%s]\nPrediction: [%s]\n\n", string(ctx), string(prediction))
 }
 
 func (m *model) rand(rng *rand.Rand) {

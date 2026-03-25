@@ -3,29 +3,33 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
-func (m *model) printAttention(bi int) {
-	b := m.blocks[bi]
-	for i := range m.prompt {
-		for a := range b.attn {
-			fmt.Printf("%c ", m.prompt[i])
-			for j := range m.prompt {
-				fg, bg := 0, 0
-				fg = int(255 * b.S[a].At(i, j))
-				fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
+func (m *model) printAttention() {
+	for bi, b := range m.blocks {
+		fmt.Printf("\nBlock %d\n", 1+bi)
+		for i := range m.prompt {
+			for a := range b.attn {
+				fmt.Printf("%c ", m.prompt[i])
+				for j := range m.prompt {
+					fg, bg := 0, 0
+					fg = int(255 * b.S[a].At(i, j))
+					fmt.Printf("\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm███\x1b[0m", fg, fg, fg, bg, bg, bg)
+				}
+				fmt.Printf("     ")
 			}
-			fmt.Printf("     ")
+			println()
 		}
-		println()
-	}
-	fmt.Printf("   ")
-	for range b.attn {
-		for _, c := range m.prompt {
-			fmt.Printf("%c  ", c)
+		fmt.Printf("   ")
+		for range b.attn {
+			for _, c := range m.prompt {
+				fmt.Printf("%c  ", c)
+			}
+			fmt.Printf("       ")
 		}
-		fmt.Printf("       ")
+		println("\n")
 	}
 }
 
@@ -89,34 +93,60 @@ func (m *model) printHeatmap(xs []int) {
 				fmt.Printf("  Block #%d, \"%s\" - ", 1+blockIx, tokenHighlight(m.prompt, xs[x]))
 				printStats(m.blocks[blockIx].XS0, x)
 			case 1:
-				fmt.Printf("  Attention Δ\n")
-				println()
-				m.printAttention(blockIx)
-				println()
+				fmt.Printf("  Attention Δ")
 			case 2:
 				fmt.Printf("  Post-attention - ")
 				printStats(m.blocks[blockIx].R0, x)
 			case 3:
 				fmt.Printf("  MLP Δ")
 			case 4:
-				final := ""
+				fmt.Printf("  Post-MLP")
 				if blockIx == len(m.blocks)-1 {
-					final = ", final output"
+					fmt.Printf(", final output")
 				}
-				fmt.Printf("  Post-MLP%s - ", final)
+				fmt.Printf(" - ")
 				printStats(m.blocks[blockIx].R1, x)
 			}
 			println()
 		}
-		println()
+		if 1+x != len(heatmaps) {
+			println()
+		}
 	}
+}
+
+func (m *model) printNextTokenProbs(i int) {
+	type pair struct {
+		token rune
+		prob  float64
+	}
+	pairs := make([]pair, len(m.vocab))
+	s, _, c := unmat(m.S)
+	for i, p := range s[i*c : i*c+c] {
+		pairs[i].token = m.vocab[i]
+		pairs[i].prob = p
+	}
+	slices.SortFunc(pairs, func(p1, p2 pair) int {
+		if p1.prob < p2.prob {
+			return 1
+		}
+		return -1
+	})
+	fmt.Printf("Next token probabilities:\n")
+	for i, pair := range pairs {
+		fmt.Printf("'%s' -> %.6f,  ", string(pair.token), pair.prob)
+		if (i+1)%4 == 0 || (i+1) == len(pairs) {
+			println()
+		}
+	}
+	println()
 }
 
 func printStats(A matrix, x int) {
 	a, _, c := unmat(A)
 	v := a[x*c : x*c+c]
 	u, o2 := meanStd(v)
-	fmt.Printf("μ[%.4f], σ[%.4f]\n", u, o2)
+	fmt.Printf("(%.3f, %.3f)\n", u, o2)
 }
 
 func tokenHighlight(prompt []rune, i int) string {

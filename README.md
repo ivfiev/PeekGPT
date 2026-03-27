@@ -14,9 +14,8 @@ $ go run . -mode train -model models/names -data ./data/names -text -v 200 \
 ```
 This trains a model generating random names with:
 - 32-dimensional embedding vectors
-- 64-dimensional MLP input layer
 - 2 blocks
-- 2 attention heads
+- 2 attention heads per-block
 - ~19k parameters
 
 Training configuration:
@@ -24,6 +23,7 @@ Training configuration:
 - validation set size 200
 - 1000 iterations @ learning rate 0.01 (Adam)
 - batch size 64
+
 Training above takes 2 seconds on my Zen5 CPU.
 
 ### Text generation
@@ -44,17 +44,13 @@ dondlyn
 
 ### Vector flow
 ```
-go run . -mode peek -model ./models/names -prompt 'adam'
+$ go run . -mode peek -model ./models/names -prompt 'adam'
 ```
 
 ### Attention matrices
 ```
-go run . -mode peek -attention -model ./models/names -prompt 'adam'
+$ go run . -mode peek -attention -model ./models/names -prompt 'adam'
 ```
-
 
 ## Overview
 <img width="400" height="800" alt="image" src="https://github.com/user-attachments/assets/3d442d70-7092-49be-88e2-2db41df1e5cc" />
-
-<br/><br/>
-

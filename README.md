@@ -1,34 +1,59 @@
 # PeekGPT
-Minimal from-scratch implementation of a transformer with focus on interpretability.
-
-No network/API calls, no external dependencies other than [gonum](https://github.com/gonum/gonum) matrix library.
-
-[OpenBLAS](https://github.com/OpenMathLib/OpenBLAS) can be linked in (very recommended for 1x-10x speedups), if possible a build with AVX512 support.
-
-## Overview
-<img width="600" height="1200" alt="image" src="https://github.com/user-attachments/assets/3d442d70-7092-49be-88e2-2db41df1e5cc" />
-
-<br/><br/>
+From-scratch implementation of a GPT2/3-style transformer model allowing to peek inside during inference/training.
+- Runs entirely on CPU
+- No network/API calls nor ML frameworks
+- Pure Go, but OpenBLAS can be optionally linked in for faster matrix products
 
 ## Example
-Below is an example for an 18k parameter model trained to reverse strings up to 10 chars in length.
 
-Trace shows path of the last 32-dimensional vector. Blue indicates negative values, red - positive. Black is near 0.
+#### Training
+```
+$ go run . -mode train -model models/names -data ./data/names -text -v 200 \
+    -dmodel 32 -ctx 8 -blocks 2 -attn 2 -mlp 2 \
+    -iters 1000 -lr 0.01 -ub 64
+```
+This trains a model generating random names with:
+- 32-dimensional embedding vectors
+- 64-dimensional MLP input layer
+- 2 blocks
+- 2 attention heads
+- ~19k parameters
+Training configuration:
+- location of training data `data/names`
+- validation set size 200
+- 1000 iterations @ learning rate 0.01 (Adam)
+- batch size 64
+Training above takes 2 seconds on my Zen5 CPU.
 
-<img width="2180" height="1876" alt="image" src="https://github.com/user-attachments/assets/3b01e23b-364c-4743-a80b-907a64d7b79f" />
+#### Text generation
+```
+$ go run . -mode prompt -model ./models/names -text -prompt 'adam' -n 50
+```
+Will generate random names like
+```
+adam
+allaunex
+bandero
+briestyn
+nelun
+kad
+feren
+dondlyn
+```
+
+#### Vector flow
+```
+go run . -mode peek -model ./models/names -prompt 'adam'
+```
+
+#### Attention matrices
+```
+go run . -mode peek -attention -model ./models/names -prompt 'adam'
+```
+
+
+## Overview
+<img width="400" height="800" alt="image" src="https://github.com/user-attachments/assets/3d442d70-7092-49be-88e2-2db41df1e5cc" />
 
 <br/><br/>
-
-#### Execute unit tests:
-`go test`
-
-#### Generate some training data. Available tasks - `reverse`, `copy`, `kv`, `index`.
-`go run . -mode gen -task reverse -n 10000 -max 10 -vocab 1234567890 > data/reverse10`
-
-#### Training. For above tasks loss of 0 is easily achievable.
-`go run . -mode train -data ./data/reverse10 -model ./models/reverse10 -t 9500 -v 500 -dmodel 48 -ctx 21 -dattn 24 -attn 2 -blocks 2 -lr 0.001 -iters 500`
-
-#### Inference.
-`go run . -mode load -model ./models/reverse10 -prompt '123456789|?????????'`
-
 

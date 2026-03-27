@@ -458,10 +458,11 @@ func (m *model) peek(ctx []rune, i int, peekMode string) {
 	case "heatmap":
 		m.printHeatmap(i)
 		println()
-		fmt.Printf("Highlighted prompt [%s]\n", tokenHighlight(ctx, i))
+		fmt.Printf("Highlighted prompt: \"%s\"\n", tokenHighlight(ctx, i))
 		m.printNextTokenProbs(i)
 	case "attention":
 		m.printAttention()
+		println()
 	default:
 		log.Panicf("Unrecognised peek mode '%s'", peekMode)
 	}
@@ -493,7 +494,7 @@ func (m *model) rand(rng *rand.Rand) {
 		}
 		mat(b.proj, std)
 		mat(b.input, std)
-		mat(b.hidden, 0)
+		mat(b.hidden, 0) // yolo
 		for i := range b.bias0 {
 			b.bias0[i] = 0
 		}

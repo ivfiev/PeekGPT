@@ -29,7 +29,10 @@ func (m *model) printAttention() {
 			}
 			fmt.Printf("       ")
 		}
-		println("\n")
+		println()
+		if bi < len(m.blocks)-1 {
+			println()
+		}
 	}
 }
 
@@ -132,7 +135,7 @@ func (m *model) printNextTokenProbs(i int) {
 	})
 	fmt.Printf("Next token probabilities:\n")
 	for i, pair := range pairs {
-		fmt.Printf("'%s' -> %.6f,  ", string(pair.token), pair.prob)
+		fmt.Printf("%q -> %.6f,  ", pair.token, pair.prob)
 		if (i+1)%4 == 0 || (i+1) == len(pairs) {
 			println()
 		}

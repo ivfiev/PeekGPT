@@ -47,11 +47,13 @@ dondlyn
 ```
 $ go run . -mode peek -model ./models/names -prompt 'adam'
 ```
+<img width="1000" height="600" alt="image" src="https://github.com/user-attachments/assets/bafacbe3-312d-4e05-aa40-e1301ef82737" />
 
 ### Attention matrices
 ```
 $ go run . -mode peek -attention -model ./models/names -prompt 'briestyn'
 ```
+<img width="550" height="475" alt="image" src="https://github.com/user-attachments/assets/28459b54-e3f7-4b41-aee0-7259ca48370d" />
 
 ## Overview
 <img width="400" height="800" alt="image" src="https://github.com/user-attachments/assets/3d442d70-7092-49be-88e2-2db41df1e5cc" />

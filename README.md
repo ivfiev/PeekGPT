@@ -6,7 +6,7 @@ From-scratch implementation of a GPT2/3-style transformer model allowing to peek
 
 ## Example
 
-#### Training
+### Training
 ```
 $ go run . -mode train -model models/names -data ./data/names -text -v 200 \
     -dmodel 32 -ctx 8 -blocks 2 -attn 2 -mlp 2 \
@@ -18,6 +18,7 @@ This trains a model generating random names with:
 - 2 blocks
 - 2 attention heads
 - ~19k parameters
+
 Training configuration:
 - location of training data `data/names`
 - validation set size 200
@@ -25,7 +26,7 @@ Training configuration:
 - batch size 64
 Training above takes 2 seconds on my Zen5 CPU.
 
-#### Text generation
+### Text generation
 ```
 $ go run . -mode prompt -model ./models/names -text -prompt 'adam' -n 50
 ```
@@ -41,12 +42,12 @@ feren
 dondlyn
 ```
 
-#### Vector flow
+### Vector flow
 ```
 go run . -mode peek -model ./models/names -prompt 'adam'
 ```
 
-#### Attention matrices
+### Attention matrices
 ```
 go run . -mode peek -attention -model ./models/names -prompt 'adam'
 ```

@@ -14,6 +14,7 @@ $ go run . -mode train -model models/names -data ./data/names -text -v 200 \
 ```
 This trains a model generating random names with:
 - 32-dimensional embedding vectors
+- context size of 8 tokens
 - 2 blocks
 - 2 attention heads per-block
 - ~19k parameters
@@ -49,7 +50,7 @@ $ go run . -mode peek -model ./models/names -prompt 'adam'
 
 ### Attention matrices
 ```
-$ go run . -mode peek -attention -model ./models/names -prompt 'adam'
+$ go run . -mode peek -attention -model ./models/names -prompt 'briestyn'
 ```
 
 ## Overview

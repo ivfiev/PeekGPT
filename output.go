@@ -76,7 +76,7 @@ func (m *model) printHeatmap(x int) {
 		width = 1
 	}
 	strip := strings.Repeat("█", width)
-	for x, heatmap := range heatmaps {
+	for _, heatmap := range heatmaps {
 		println()
 		for label, rgb := range heatmap {
 			for i, x := range rgb {

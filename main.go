@@ -33,45 +33,45 @@ func main() {
 	dattn := flag.Int("dattn", 0, "dattn")
 	attn := flag.Int("attn", 1, "attn")
 	blocks := flag.Int("blocks", 1, "blocks")
-	lr := flag.Float64("lr", 0.0001, "learning rate")
+	lr := flag.Float64("lr", 0.001, "learning rate")
 	iters := flag.Int("iters", 1000, "training iterations")
 	ubatches := flag.Int("ub", 64, "micro-batches")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "seed")
 	task := flag.String("task", "", "task data type")
 	vocab := flag.String("vocab", "", "vocab")
 	n := flag.Int("n", 0, "n")
+	i := flag.Int("i", -1, "n")
 	maxLen := flag.Int("max", 0, "max")
 	textmode := flag.Bool("text", false, "text generation mode")
 	par := flag.Int("par", 8, "parallel training")
 	mlp := flag.Int("mlp", 2, "MLP width")
 	steps := flag.Int("steps", 100, "validation frequency every x iters")
+	attention := flag.Bool("attention", false, "peek attention")
 	flag.Parse()
 
 	switch *mode {
-	case "solve":
+	case "peek":
 		if *prompt == "" {
 			log.Panicln("empty prompt")
 		}
-		model := load(*modelpath)
 		ctx := []rune(*prompt)
-		ys := []int{}
-		if *textmode {
-			ys = append(ys, len(ctx)-1)
-		} else {
-			for i := range ctx {
-				if ctx[i] == '?' {
-					ys = append(ys, i)
-				}
-			}
+		if *i == -1 {
+			*i = len(ctx) - 1
 		}
-		model.solve(ctx, ys)
+		model := load(*modelpath)
+		if *attention {
+			model.peek(ctx, *i, "attention")
+		} else {
+			model.peek(ctx, *i, "heatmap")
+		}
 
 	case "prompt":
 		if *prompt == "" {
 			log.Panicln("empty prompt")
 		}
+		ctx := []rune(*prompt)
 		model := load(*modelpath)
-		model.generate([]rune(*prompt), *n)
+		model.generate(ctx, *n)
 
 	case "train":
 		if *dattn == 0 {

@@ -451,27 +451,6 @@ func (m *model) generate(ctx []rune, n int) {
 	println()
 }
 
-func (m *model) solve(ctx []rune, ys []int) {
-	m.loadXs(ctx)
-	m.forward()
-	s, _, c := unmat(m.S)
-	prediction := make([]rune, 0)
-	// fmt.Println(string(t.vocab))
-	xs := []int{}
-	for _, y := range ys {
-		// printVec(d[i*s : i*s+c])
-		_, j := rowMax(s[y*c : y*c+c])
-		prediction = append(prediction, m.vocab[j])
-		xs = append(xs, y)
-	}
-	println()
-	m.printHeatmap(xs)
-	println()
-	m.printAttention()
-	println()
-	fmt.Printf("Input: [%s]\nPrediction: [%s]\n\n", string(ctx), string(prediction))
-}
-
 func (m *model) rand(rng *rand.Rand) {
 	mat := func(m matrix, std float64) {
 		d, r, c := unmat(m)

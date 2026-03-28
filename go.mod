@@ -1,4 +1,4 @@
-module github.com/ivfiev/vector-lens
+module github.com/ivfiev/PeekGPT
 
 go 1.25.6
 

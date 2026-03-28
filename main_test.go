@@ -413,7 +413,7 @@ func TestHeatmaps(te *testing.T) {
 	})
 	m.blocks[0].R1 = testMat([][]float64{
 		{1, 0, 0, 1},
-		{0, 1, 0, 2},
+		{0, -1, 0, 2},
 		{0, 0, 1, 3},
 	})
 	heatmaps := m.calcHeatmap(1, []matrix{
@@ -430,7 +430,7 @@ func TestHeatmaps(te *testing.T) {
 		{-0.333, 0.333, 0.333, 0},
 		{0, 0.333, 0.333, 0},
 		{0, 0.333, 0, 0.666},
-		{0, 0.333, 0, 0.666},
+		{0, -0.333, 0, 0.666},
 	}, "heatmaps", te)
 }
 

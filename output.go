@@ -2,10 +2,28 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"slices"
 	"strings"
 )
+
+func (m *model) peek(ctx []rune, i int, peekMode string) {
+	m.loadXs(ctx)
+	m.forward()
+	switch peekMode {
+	case "heatmap":
+		m.printHeatmap(i)
+		println()
+		fmt.Printf("Highlighted prompt: \"%s\"\n", tokenHighlight(ctx, i))
+		m.printNextTokenProbs(i)
+	case "attention":
+		m.printAttention()
+		println()
+	default:
+		log.Panicf("Unrecognised peek mode '%s'", peekMode)
+	}
+}
 
 func (m *model) printAttention() {
 	for bi, b := range m.blocks {

@@ -2,7 +2,7 @@
 From-scratch implementation of a GPT-style transformer allowing to peek inside during inference/training.
 - Runs entirely on CPU
 - No network/API calls nor ML frameworks
-- Pure Go, but OpenBLAS can be optionally linked in for faster matrix products
+- Pure Go, OpenBLAS can be optionally linked in for faster matrix products
 
 ## Example
 
@@ -57,6 +57,11 @@ $ go run . -mode peek -model ./models/names -prompt 'adam'
 $ go run . -mode peek -attention -model ./models/names -prompt 'briestyn'
 ```
 <img width="550" height="475" alt="image" src="https://github.com/user-attachments/assets/28459b54-e3f7-4b41-aee0-7259ca48370d" />
+
+#### Run unit tests
+```
+$ go test
+```
 
 ## Overview
 <img width="400" height="800" alt="image" src="https://github.com/user-attachments/assets/3d442d70-7092-49be-88e2-2db41df1e5cc" />

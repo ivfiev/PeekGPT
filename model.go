@@ -451,23 +451,6 @@ func (m *model) generate(ctx []rune, n int) {
 	println()
 }
 
-func (m *model) peek(ctx []rune, i int, peekMode string) {
-	m.loadXs(ctx)
-	m.forward()
-	switch peekMode {
-	case "heatmap":
-		m.printHeatmap(i)
-		println()
-		fmt.Printf("Highlighted prompt: \"%s\"\n", tokenHighlight(ctx, i))
-		m.printNextTokenProbs(i)
-	case "attention":
-		m.printAttention()
-		println()
-	default:
-		log.Panicf("Unrecognised peek mode '%s'", peekMode)
-	}
-}
-
 func (m *model) rand(rng *rand.Rand) {
 	mat := func(m matrix, std float64) {
 		d, r, c := unmat(m)

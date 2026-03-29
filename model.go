@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -420,35 +419,6 @@ func (b *block) loadXs(xs matrix) {
 		log.Panic("Incompatible XS")
 	}
 	copy(dxs0, dxs)
-}
-
-func (m *model) predict(ctx []rune) ([]rune, vector) {
-	m.loadXs(ctx)
-	m.forward()
-	s, _, c := unmat(m.S)
-	nexts := make([]rune, len(ctx))
-	probs := make(vector, len(ctx))
-	for tokIx := range len(ctx) {
-		_, i := rowMax(s[c*tokIx : c*tokIx+c])
-		nexts[tokIx] = m.vocab[i]
-		probs[tokIx] = s[tokIx*c+i]
-	}
-	return nexts, probs
-}
-
-func (m *model) generate(ctx []rune, n int) {
-	fmt.Printf("%s", string(ctx))
-	d, _, c := unmat(m.S)
-	for range n {
-		m.loadXs(ctx)
-		m.forward()
-		tokIx := len(ctx) - 1
-		i := sample(d[tokIx*c : tokIx*c+c])
-		fmt.Printf("%c", m.vocab[i])
-		ctx = append(ctx, m.vocab[i])
-		ctx = ctx[max(0, len(ctx)-m.context):]
-	}
-	println()
 }
 
 func (m *model) rand(rng *rand.Rand) {

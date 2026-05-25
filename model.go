@@ -445,9 +445,9 @@ func (m *model) rand(rng *rand.Rand) {
 			mat(b.keys[i], std)
 			mat(b.values[i], std)
 		}
-		mat(b.proj, 1e-5)
+		mat(b.proj, 1e-3)
 		mat(b.input, math.Sqrt2*std)
-		mat(b.hidden, 1e-5)
+		mat(b.hidden, 1e-3)
 		for i := range b.bias0 {
 			b.bias0[i] = 0
 		}

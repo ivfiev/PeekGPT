@@ -101,7 +101,7 @@ func TestIntegrationTask(te *testing.T) {
 	assert("31")
 	assert("3")
 	assert("2")
-	const target = 0.0016501318234
+	const target = 0.0329543414942
 	assertValidation(m, task, target, data, te)
 }
 
@@ -119,7 +119,7 @@ Couldn't put Humpty together again.
 	mSeq := train(16, 8, 8, 2, 2, 2,
 		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
 		133, 17, 1, 0.01, seed, nil)
-	const target = 0.6144217965015
+	const target = 0.6326570877576
 	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
 	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
@@ -655,73 +655,71 @@ func TestMatrixCat(te *testing.T) {
 func TestBackprop(te *testing.T) {
 	const eps = 1e-7
 	rng := rand.New(rand.NewSource(7357))
-	m := newModel(4, 3, 2, 2, 2, 3, []rune("abcde"))
-	fmt.Printf("Backprop test model size: %d\n", m.size())
-	m.rand(rng)
-	for i := range m.dModel {
-		m.gamma2[i] = 0.88 + rng.Float64()
-		m.bias2[i] = -0.5 + rng.Float64()
-	}
-	for _, b := range m.blocks {
-		for i := range m.dModel {
-			b.bias0[i] = -0.5 + rng.Float64()
-			b.bias1[i] = -0.5 + rng.Float64()
-			b.gamma0[i] = 0.7 + rng.Float64()
-			b.gamma1[i] = 0.8 + rng.Float64()
-			b.beta0[i] = -0.5 + rng.Float64()
-			b.beta1[i] = -0.5 + rng.Float64()
+	for depth := range 5 {
+		m := newModel(4, 3, 2, 2, 2, 1+depth, []rune("abcde"))
+		fmt.Printf("Backprop test model size: %d\n", m.size())
+		m.rand(rng)
+		expected := make(vector, m.size())
+		actual := make(vector, m.size())
+		finiteDiff := func(prompt []rune) {
+			theta := make(vector, m.size())
+			alpha := make(vector, m.size())
+			m.dump(theta)
+			m.dump(alpha)
+			for i := range theta {
+				theta[i] += eps
+				m.apply(theta)
+				m.loadXs(prompt)
+				m.forward()
+				plus := m.loss()
+				theta[i] -= 2 * eps
+				m.apply(theta)
+				m.loadXs(prompt)
+				m.forward()
+				minus := m.loss()
+				expected[i] = (plus - minus) / (2 * eps)
+				theta[i] += eps
+			}
+			m.apply(alpha)
 		}
-	}
-	expected := make(vector, m.size())
-	actual := make(vector, m.size())
-	finiteDiff := func(prompt []rune) {
-		theta := make(vector, m.size())
-		alpha := make(vector, m.size())
-		m.dump(theta)
-		m.dump(alpha)
-		for i := range theta {
-			theta[i] += eps
-			m.apply(theta)
+		backprop := func(prompt []rune) {
 			m.loadXs(prompt)
 			m.forward()
-			plus := m.loss()
-			theta[i] -= 2 * eps
-			m.apply(theta)
-			m.loadXs(prompt)
-			m.forward()
-			minus := m.loss()
-			expected[i] = (plus - minus) / (2 * eps)
-			theta[i] += eps
+			m.backward()
+			m.grad(actual, 0)
 		}
-		m.apply(alpha)
-	}
-	backprop := func(prompt []rune) {
-		m.loadXs(prompt)
-		m.forward()
-		m.backward()
-		m.grad(actual, 0)
-	}
-	test := func(proompt []rune, ys []int) {
-		copy(m.ys, ys)
-		finiteDiff(proompt)
-		backprop(proompt)
-		for i := range m.size() {
-			e := expected[i]
-			a := actual[i]
-			if math.Abs(e-a) > eps {
-				te.Errorf("%d: %.9f != %.9f", i, e, a)
+		test := func(proompt []rune, ys []int) {
+			copy(m.ys, ys)
+			finiteDiff(proompt)
+			backprop(proompt)
+			for i := range m.size() {
+				e := expected[i]
+				a := actual[i]
+				if math.Abs(e-a) > eps {
+					te.Errorf("%d: %.9f != %.9f", i, e, a)
+				}
+				if math.Abs(e-a)/max(1, math.Abs(e), math.Abs(a)) > eps {
+					te.Errorf("%d: %.9f != %.9f", i, e, a)
+				}
 			}
-			if math.Abs(e-a)/max(1, math.Abs(e), math.Abs(a)) > eps {
-				te.Errorf("%d: %.9f != %.9f", i, e, a)
-			}
+			// printMat(m.blocks[0].dinput)
+			// println()
 		}
+		test([]rune("a"), []int{1, -1, -1})
+		test([]rune("b"), []int{0, -1, -1})
+		test([]rune("c"), []int{2, -1, -1})
+		test([]rune("d"), []int{1, -1, -1})
+		test([]rune("e"), []int{3, -1, -1})
+		test([]rune("ab"), []int{2, 0, -1})
+		test([]rune("ae"), []int{1, 0, -1})
+		test([]rune("eb"), []int{0, 1, -1})
+		test([]rune("ca"), []int{2, 2, -1})
+		test([]rune("cd"), []int{1, 1, -1})
+		test([]rune("eee"), []int{3, 1, 1})
+		test([]rune("dab"), []int{1, 1, 0})
+		test([]rune("cab"), []int{2, 2, 2})
+		test([]rune("aae"), []int{0, 0, 0})
+		test([]rune("dab"), []int{0, 1, 1})
+		test([]rune("bcd"), []int{2, 0, 1})
 	}
-	test([]rune("a"), []int{1, -1, -1})
-	test([]rune("e"), []int{3, -1, -1})
-	test([]rune("ab"), []int{1, 2, -1})
-	test([]rune("ed"), []int{0, 2, -1})
-	test([]rune("cd"), []int{1, 1, -1})
-	test([]rune("eee"), []int{3, 1, 1})
-	test([]rune("dab"), []int{1, 1, 0})
-	test([]rune("bac"), []int{0, 2, 1})
 }

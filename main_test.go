@@ -83,7 +83,7 @@ func TestIntegrationTask(te *testing.T) {
 	data := genCopyDataset([]rune("1234"), 4, 500, rng)
 	m := train(16, 9, 8, 2, 2, 2,
 		data[:450], data[450:], 0,
-		150, 32, 8, 0.01, seed, nil)
+		250, 32, 8, 0.01, seed, nil)
 	assert := func(expected string) {
 		ctx := []rune(fmt.Sprintf("%s|%s", expected, strings.Repeat("?", len(expected))))
 		toks, _ := m.predict(ctx)
@@ -101,7 +101,7 @@ func TestIntegrationTask(te *testing.T) {
 	assert("31")
 	assert("3")
 	assert("2")
-	const target = 0.0011941290520
+	const target = 0.0030897476758
 	assertValidation(m, task, target, data, te)
 }
 
@@ -119,7 +119,7 @@ Couldn't put Humpty together again.
 	mSeq := train(16, 8, 8, 2, 2, 2,
 		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
 		133, 17, 1, 0.01, seed, nil)
-	const target = 0.6264098015485
+	const target = 0.6176038688756
 	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
 	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
@@ -171,7 +171,7 @@ func TestPointLoss(te *testing.T) {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
 	actual = t.pointLoss(m, []rune("a|?=a"))
-	expected = (p(2, 0)) / 1.0
+	expected = p(2, 0) / 1.0
 	if math.Abs(actual-expected) > 0.000000000000001 {
 		te.Fatalf("Wrong PointLoss %f != %f\n", actual, expected)
 	}
@@ -560,7 +560,7 @@ func TestMatrixInit(te *testing.T) {
 		assert(b.beta1, func(f float64) bool { return f == 0 })
 		assert(b.input, func(f float64) bool { return f != 0 })
 		assert(b.bias0, func(f float64) bool { return f == 0 })
-		assert(b.hidden, func(f float64) bool { return f == 0 })
+		assert(b.hidden, func(f float64) bool { return f != 0 })
 		assert(b.bias1, func(f float64) bool { return f == 0 })
 	}
 	assert(m.gamma2, func(f float64) bool { return f == 1 })

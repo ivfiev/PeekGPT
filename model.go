@@ -445,9 +445,9 @@ func (m *model) rand(rng *rand.Rand) {
 			mat(b.keys[i], std)
 			mat(b.values[i], std)
 		}
-		mat(b.proj, std)
-		mat(b.input, std)
-		mat(b.hidden, 0) // yolo
+		mat(b.proj, 1e-5)
+		mat(b.input, 1.4142*std)
+		mat(b.hidden, 1e-5)
 		for i := range b.bias0 {
 			b.bias0[i] = 0
 		}

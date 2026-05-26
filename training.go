@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"slices"
 	"sync"
@@ -270,4 +271,43 @@ func train(
 	m.apply(theta)
 	fmt.Printf("\nTrained %d parameters in %.3f seconds.\n", m.size(), float64(time.Now().UnixMilli()-now)/1000)
 	return m
+}
+
+func debug(model *model, data []rune) {
+	model.loadXs(data)
+	model.forward()
+	printActivations := func(m matrix, name string) {
+		v := flatten(m)
+		stats := map[int]int{}
+		for _, x := range v {
+			if math.Abs(x) <= 1e-3 {
+				stats[0]++
+			} else if math.Abs(x) <= 1 {
+				stats[1]++
+			} else if math.Abs(x) <= 2 {
+				stats[2]++
+			} else if math.Abs(x) <= 3 {
+				stats[3]++
+			} else if math.Abs(x) <= 5 {
+				stats[5]++
+			} else if math.Abs(x) <= 10 {
+				stats[10]++
+			} else {
+				stats[404]++
+			}
+		}
+		fmt.Printf("%s: ", name)
+		for _, n := range []int{0, 1, 2, 3, 5, 10, 404} {
+			fmt.Printf("<= %d: %d, ", n, stats[n])
+		}
+		println()
+	}
+	for i, b := range model.blocks {
+		for _, qk := range b.QK {
+			printActivations(qk, fmt.Sprintf("b%d QK", i))
+		}
+		printActivations(b.I, fmt.Sprintf("b%d input", i))
+		printActivations(b.H, fmt.Sprintf("b%d hidden", i))
+	}
+	printActivations(model.L, "model.L")
 }

@@ -21,7 +21,7 @@ func main() {
 	// pprof.StartCPUProfile(f)
 	// defer pprof.StopCPUProfile()
 
-	mode := flag.String("mode", "load", "train/solve/eval (loss)/gen (data)/prompt")
+	mode := flag.String("mode", "load", "train/solve/eval (loss)/gen (data)/prompt/debug")
 	datapath := flag.String("data", "", "training/validation data path")
 	modelpath := flag.String("model", "", "model path")
 	checkpoint := flag.Bool("checkpoint", false, "continue training existing model")
@@ -47,6 +47,7 @@ func main() {
 	mlp := flag.Int("mlp", 2, "MLP width")
 	steps := flag.Int("steps", 100, "validation frequency every x iters")
 	attention := flag.Bool("attention", false, "peek attention")
+	input := flag.String("input", "", "debug input")
 	flag.Parse()
 
 	switch *mode {
@@ -128,6 +129,28 @@ func main() {
 		loss := tr.validate(model)
 		fmt.Printf("Loss: %.12f\n", loss)
 		fmt.Printf("Prob: %.12f\n", math.Exp(-loss))
+
+	case "debug":
+		if *dattn == 0 {
+			*dattn = *dmodel / *attn
+		}
+		var model *model
+		if *checkpoint {
+			model = load(*modelpath)
+			log.Printf("Loaded checkpoint [%s]\n", *modelpath)
+		}
+		if *input == "" {
+			panic("empty input")
+		}
+		trainingSet, validationSet := readTrainingData(*datapath, *tsize, *vsize, *textmode)
+		model = train(
+			*dmodel, *context, *dattn, *attn, *mlp, *blocks,
+			trainingSet, validationSet, *steps,
+			*iters, *ubatches, *par, *lr,
+			*seed,
+			model,
+		)
+		debug(model, []rune(*input))
 
 	default:
 		log.Fatalf("unknown mode %s", *mode)

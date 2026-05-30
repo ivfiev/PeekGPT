@@ -344,7 +344,7 @@ func (b *block) forward() {
 
 func (m *model) loss() float64 {
 	loss := 0.0
-	count := 0
+	count := 0.0
 	s, r, c := unmat(m.S)
 	for i := range r {
 		if m.ys[i] == -1 {
@@ -354,7 +354,7 @@ func (m *model) loss() float64 {
 		p := s[i*c+m.ys[i]]
 		loss += -math.Log(p)
 	}
-	return loss / float64(count)
+	return loss / count
 }
 
 func (m *model) size() int {

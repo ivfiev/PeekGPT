@@ -150,7 +150,7 @@ func main() {
 			*seed,
 			model,
 		)
-		debug(model, []rune(*input))
+		model.printActivations([]rune(*input))
 
 	default:
 		log.Fatalf("unknown mode %s", *mode)

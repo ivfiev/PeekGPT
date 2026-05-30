@@ -205,3 +205,41 @@ func tokenHighlight(prompt []rune, i int) string {
 	hl = append(hl, prompt[i+1:]...)
 	return string(hl)
 }
+
+func (m *model) printActivations(data []rune) {
+	m.loadXs(data)
+	m.forward()
+	printLine := func(m matrix, name string) {
+		v := flatten(m)
+		stats := map[int]int{}
+		ranges := [][]float64{
+			{0, -1e-5, 1e-5},
+			{1, -1, 1},
+			{2, -2, 2},
+			{3, -3, 3},
+			{5, -5, 5},
+			{404, -99999, 99999},
+		}
+		for _, x := range v {
+			for _, r := range ranges {
+				if r[1] <= x && x <= r[2] {
+					stats[int(r[0])]++
+					break
+				}
+			}
+		}
+		fmt.Printf("%s  ", fmt.Sprintf("%-10s", name))
+		for _, r := range ranges {
+			fmt.Printf("%.2f  ", float64(stats[int(r[0])])/float64(len(v)))
+		}
+		println()
+	}
+	for i, b := range m.blocks {
+		for _, qk := range b.QK {
+			printLine(qk, fmt.Sprintf("b%d QK", i))
+		}
+		printLine(b.I, fmt.Sprintf("b%d input", i))
+		printLine(b.H, fmt.Sprintf("b%d hidden", i))
+	}
+	printLine(m.L, "model.L")
+}

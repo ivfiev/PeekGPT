@@ -430,9 +430,9 @@ func (m *model) rand(rng *rand.Rand) {
 			}
 		}
 	}
-	std := 1 / math.Sqrt(float64(m.dModel))
-	mat(m.tokens, math.Sqrt(0.5))
-	mat(m.positions, math.Sqrt(0.5))
+	std := 1 / math.Sqrt(float64(m.dModel)) // X * 1/d * d = X
+	mat(m.tokens, std)
+	mat(m.positions, std)
 	for _, b := range m.blocks {
 		for i := range b.gamma0 {
 			b.gamma0[i] = 1

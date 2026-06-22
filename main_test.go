@@ -101,7 +101,7 @@ func TestIntegrationTask(te *testing.T) {
 	assert("31")
 	assert("3")
 	assert("2")
-	const target = 0.0329543414942
+	const target = 0.0073361906150
 	assertValidation(m, task, target, data, te)
 }
 
@@ -119,7 +119,7 @@ Couldn't put Humpty together again.
 	mSeq := train(16, 8, 8, 2, 2, 2,
 		[][]rune{data}, [][]rune{[]rune("Humpty Dumpty sat on a wall.")}, 0,
 		133, 17, 1, 0.01, seed, nil)
-	const target = 0.6326570877576
+	const target = 0.4725303170697
 	assertValidation(mPar, text, target, [][]rune{data[:30]}, te)
 	assertValidation(mSeq, text, target, [][]rune{data[:30]}, te)
 }
